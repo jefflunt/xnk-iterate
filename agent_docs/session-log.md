@@ -76,3 +76,9 @@
 - Added persistent app config (`internal/config/store.go`, `~/Library/Application Support/XNK Iterate/config.json`) remembering workspace path, silence pause, AI Voice mute state, and Capture Box geometry across restarts.
 - Added `NSWindowWillCloseNotification` + `NSApplicationWillTerminateNotification` cleanup observers (`internal/ui/window_darwin.m`) so closing the main window or pressing `Cmd+Q` always destroys the detached Capture Box, stops child helpers, and exits cleanly with zero background lingering.
 - Bumped `VERSION` to `1.3.0` (`v1.3.0`).
+
+## 2026-11-21 — v1.3.1 Root Documentation Cleanup
+
+### Summary
+- Removed redundant root ALL CAPS design docs (`ARCHITECTURE.md`, `ROADMAP.md`, `SPECIFICATION.md`, `UI_DESIGN.md`) now superseded by `agent_docs/`.
+- Updated `README.md` and `agent_docs/README.md` links accordingly and bumped `VERSION` to `1.3.1` (`v1.3.1`).

@@ -59,9 +59,6 @@ open "dist/XNK Iterate.app"
 
 ---
 
-## 4. Project Documentation
+## 4. Documentation
 
-* **[`ARCHITECTURE.md`](ARCHITECTURE.md):** Deep-dive system architecture, pipeline flowcharts, and component interaction.
-* **[`SPECIFICATION.md`](SPECIFICATION.md):** Technical schemas, data models, video/audio formats, and WebSocket JSON-RPC event contracts.
-* **[`UI_DESIGN.md`](UI_DESIGN.md):** SwiftUI UX specifications, window picker mechanics, and minimal floating HUD design.
-* **[`ROADMAP.md`](ROADMAP.md):** Phased engineering implementation roadmap.
+Architecture notes, conventions, and session history live in [`agent_docs/`](agent_docs/README.md).

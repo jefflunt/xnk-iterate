@@ -12,11 +12,8 @@ This directory contains persistent context, architectural notes, and session log
 
 ## Core Project Documents
 
-- [`README.md`](../README.md) — Vision, origin (*King's Claim* in-browser holodeck), and core capabilities.
-- [`ARCHITECTURE.md`](../ARCHITECTURE.md) — System architecture, subsystem breakdown, Dynamic Lookback Engine rules, and agent communication modes.
-- [`SPECIFICATION.md`](../SPECIFICATION.md) — Video/audio encoding specs, Swift data models (`CaptureManifest`, `Utterance`, `InteractionEvent`, `FrameSnapshot`), WebSocket JSON event schemas, and required macOS permissions.
-- [`UI_DESIGN.md`](../UI_DESIGN.md) — Window picker UX (`Cmd+Shift+5`-style), floating director HUD, self-exclusion from `SCContentFilter`, menu bar tray, and SwiftUI scaffold.
-- [`ROADMAP.md`](../ROADMAP.md) — 6-phase engineering roadmap from capture engine through Antigravity skill integration.
+- [`README.md`](../README.md) — Vision, core capabilities, and build/run instructions.
+- [`session-log.md`](session-log.md) — Chronological record of development sessions, releases, and architectural changes.
 
 ## Key Architectural Decisions
 
