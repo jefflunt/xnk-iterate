@@ -31,6 +31,18 @@ type Point struct {
 	Y float64 `json:"y"`
 }
 
+// CaptureRegion defines the user's draggable/resizable screen-space capture rectangle.
+// Coordinates are in top-left global screen space across all connected monitors.
+type CaptureRegion struct {
+	X            int  `json:"x"`
+	Y            int  `json:"y"`
+	Width        int  `json:"width"`
+	Height       int  `json:"height"`
+	DisplayIndex int  `json:"display_index"`
+	Detached     bool `json:"detached"`
+	Locked       bool `json:"locked"`
+}
+
 // CaptureTarget describes an available or selected display/window capture source.
 type CaptureTarget struct {
 	ID               string     `json:"id"`
@@ -175,6 +187,7 @@ type SessionStateSnapshot struct {
 	BatchedCount      int                `json:"batched_count"`
 	ElapsedSeconds    float64            `json:"elapsed_seconds"`
 	Target            *CaptureTarget     `json:"target,omitempty"`
+	Region            CaptureRegion      `json:"region"`
 	WorkspacePath     string             `json:"workspace_path"`
 	ConversationID    string             `json:"conversation_id,omitempty"`
 	ContinueSession   bool               `json:"continue_session"`

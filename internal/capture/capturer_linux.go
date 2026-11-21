@@ -80,7 +80,7 @@ func (l *linuxCapturer) Start(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-func (l *linuxCapturer) GrabSnapshot(ctx context.Context, target model.CaptureTarget) ([]byte, string, error) {
+func (l *linuxCapturer) GrabSnapshot(ctx context.Context, target model.CaptureTarget, region *model.CaptureRegion) ([]byte, string, error) {
 	return nil, "", nil
 }
 

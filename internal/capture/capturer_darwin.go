@@ -218,21 +218,32 @@ func (d *darwinCapturer) Start(ctx context.Context, cfg Config) error {
 			fps = 30
 		}
 		videoPath := filepath.Join(cfg.OutputDir, cfg.VideoFile)
-		// AVFoundation screen index: "1:0" or "Capture screen <N>"
-		inputSpec := fmt.Sprintf("Capture screen %d:none", cfg.Target.DisplayIndex)
+		dispIdx := cfg.Target.DisplayIndex
+		if cfg.Region != nil && cfg.Region.DisplayIndex >= 0 {
+			dispIdx = cfg.Region.DisplayIndex
+		}
+		inputSpec := fmt.Sprintf("Capture screen %d:none", dispIdx)
 		args := []string{
 			"-y",
 			"-f", "avfoundation",
 			"-framerate", strconv.Itoa(fps),
 			"-capture_cursor", "1",
 			"-i", inputSpec,
+		}
+		if cfg.Region != nil && cfg.Region.Width > 32 && cfg.Region.Height > 32 {
+			// Ensure even dimensions for H.264 yuv420p encoding
+			w := cfg.Region.Width &^ 1
+			h := cfg.Region.Height &^ 1
+			args = append(args, "-vf", fmt.Sprintf("crop=%d:%d:%d:%d", w, h, max(0, cfg.Region.X), max(0, cfg.Region.Y)))
+		}
+		args = append(args,
 			"-c:v", "h264_videotoolbox",
 			"-b:v", "6M",
 			"-pix_fmt", "yuv420p",
 			"-movflags", "frag_keyframe+empty_moov+default_base_moof",
 			"-frag_duration", "1000000",
 			videoPath,
-		}
+		)
 		cmd := exec.CommandContext(runCtx, "ffmpeg", args...)
 		if err := cmd.Start(); err == nil {
 			d.ffmpegCmd = cmd
@@ -256,7 +267,7 @@ func (d *darwinCapturer) runRingBufferFeeder(ctx context.Context, cfg Config) {
 		if cfg.RingBuffer == nil {
 			return
 		}
-		data, format, err := d.GrabSnapshot(ctx, cfg.Target)
+		data, format, err := d.GrabSnapshot(ctx, cfg.Target, cfg.Region)
 		if err != nil || len(data) == 0 {
 			return
 		}
@@ -283,12 +294,15 @@ func (d *darwinCapturer) runRingBufferFeeder(ctx context.Context, cfg Config) {
 	}
 }
 
-func (d *darwinCapturer) GrabSnapshot(ctx context.Context, target model.CaptureTarget) ([]byte, string, error) {
+func (d *darwinCapturer) GrabSnapshot(ctx context.Context, target model.CaptureTarget, region *model.CaptureRegion) ([]byte, string, error) {
 	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("xnk_snap_%d.jpg", time.Now().UnixNano()))
 	defer os.Remove(tmpFile)
 
 	args := []string{"-x", "-t", "jpg"}
-	if target.Type == model.TargetWindow && strings.HasPrefix(target.ID, "window:") {
+	if region != nil && region.Width > 32 && region.Height > 32 {
+		// Global screen-space rectangle across all monitors!
+		args = append(args, "-R", fmt.Sprintf("%d,%d,%d,%d", region.X, region.Y, region.Width, region.Height))
+	} else if target.Type == model.TargetWindow && strings.HasPrefix(target.ID, "window:") {
 		wid := strings.TrimPrefix(target.ID, "window:")
 		args = append(args, "-l", wid)
 	} else {

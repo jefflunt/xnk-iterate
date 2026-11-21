@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/jefflunt/xnk-iterate/internal/model"
 	"github.com/jefflunt/xnk-iterate/internal/server"
 	"github.com/jefflunt/xnk-iterate/internal/session"
 	"github.com/jefflunt/xnk-iterate/internal/ui"
@@ -40,6 +41,20 @@ func main() {
 	}
 
 	app := ui.NewDesktopApp("XNK Iterate — Voice + Vision Antigravity Director", url)
+	captureBox := ui.NewPlatformCaptureBox()
+	defer captureBox.Destroy()
+
+	captureBox.SetOnRegionChange(func(r model.CaptureRegion) {
+		orch.UpdateRegion(r, true)
+	})
+	orch.SetRegionCallback(func(r model.CaptureRegion) {
+		if r.Detached {
+			captureBox.Show(r)
+			captureBox.SetLocked(r.Locked)
+		} else {
+			captureBox.Hide()
+		}
+	})
 	orch.SetHUDToggleCallback(func(compact bool) {
 		app.SetCompactHUD(compact)
 	})

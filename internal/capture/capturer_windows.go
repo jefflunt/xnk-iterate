@@ -72,7 +72,7 @@ func (w *windowsCapturer) Start(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-func (w *windowsCapturer) GrabSnapshot(ctx context.Context, target model.CaptureTarget) ([]byte, string, error) {
+func (w *windowsCapturer) GrabSnapshot(ctx context.Context, target model.CaptureTarget, region *model.CaptureRegion) ([]byte, string, error) {
 	return nil, "", nil
 }
 

@@ -67,6 +67,7 @@ type Orchestrator struct {
 	speechStartedAt   float64
 	utteranceSeq      int
 	target            *model.CaptureTarget
+	region            model.CaptureRegion
 	workspacePath     string
 	conversationID    string
 	continueSession   bool
@@ -84,9 +85,10 @@ type Orchestrator struct {
 	sessionCancel     context.CancelFunc
 	lastLiveFrameAt   time.Time
 
-	subMu       sync.RWMutex
-	subscribers map[chan LiveEvent]struct{}
-	onHUDToggle func(compact bool)
+	subMu         sync.RWMutex
+	subscribers   map[chan LiveEvent]struct{}
+	onHUDToggle   func(compact bool)
+	onRegionEvent func(region model.CaptureRegion)
 }
 
 // NewOrchestrator wires all subsystems for the current OS platform.
@@ -106,6 +108,15 @@ func NewOrchestrator(storageRoot string) *Orchestrator {
 		lookbackEng:     lookback.New(),
 		ringBuf:         ringbuffer.New(30.0, 90),
 		timeline:        interaction.NewTimeline(5000),
+		region: model.CaptureRegion{
+			X:            120,
+			Y:            140,
+			Width:        1280,
+			Height:       720,
+			DisplayIndex: 0,
+			Detached:     false,
+			Locked:       false,
+		},
 		workspacePath:   wd,
 		continueSession: true,
 		agentState:      model.AgentIdle,
@@ -217,6 +228,70 @@ func (o *Orchestrator) SetHUDToggleCallback(fn func(compact bool)) {
 	o.onHUDToggle = fn
 }
 
+// SetRegionCallback registers a platform CaptureBox hook invoked when region/detach/lock state changes.
+func (o *Orchestrator) SetRegionCallback(fn func(region model.CaptureRegion)) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.onRegionEvent = fn
+}
+
+// UpdateRegion updates the capture drag-box geometry unless locked during active recording.
+func (o *Orchestrator) UpdateRegion(r model.CaptureRegion, fromNative bool) {
+	o.mu.Lock()
+	if o.region.Locked || o.recording {
+		o.mu.Unlock()
+		return
+	}
+	if r.Width < 240 {
+		r.Width = 240
+	}
+	if r.Height < 160 {
+		r.Height = 160
+	}
+	r.Locked = false
+	o.region = r
+	cb := o.onRegionEvent
+	o.mu.Unlock()
+
+	if !fromNative && cb != nil {
+		cb(r)
+	}
+	o.broadcastState()
+}
+
+// ToggleDetachCaptureBox switches the capture region between docked in Studio and a detached multi-monitor native overlay.
+func (o *Orchestrator) ToggleDetachCaptureBox() bool {
+	o.mu.Lock()
+	if o.recording {
+		// Prevent detaching/re-docking while recording is locked
+		detached := o.region.Detached
+		o.mu.Unlock()
+		return detached
+	}
+	o.region.Detached = !o.region.Detached
+	r := o.region
+	cb := o.onRegionEvent
+	o.mu.Unlock()
+
+	if cb != nil {
+		cb(r)
+	}
+	o.broadcastState()
+	return r.Detached
+}
+
+// UpdateSettings updates workspace, conversation ID, and continue flag from the Settings drawer.
+func (o *Orchestrator) UpdateSettings(workspacePath, convID string, continueSession bool) {
+	o.mu.Lock()
+	if strings.TrimSpace(workspacePath) != "" {
+		o.workspacePath = strings.TrimSpace(workspacePath)
+	}
+	o.conversationID = strings.TrimSpace(convID)
+	o.continueSession = continueSession
+	o.mu.Unlock()
+	o.broadcastState()
+}
+
 // Subscribe returns a channel receiving real-time LiveEvents.
 func (o *Orchestrator) Subscribe() chan LiveEvent {
 	ch := make(chan LiveEvent, 64)
@@ -321,6 +396,7 @@ func (o *Orchestrator) StateSnapshot() model.SessionStateSnapshot {
 		BatchedCount:      o.batcher.PendingCount(),
 		ElapsedSeconds:    elapsed,
 		Target:            o.target,
+		Region:            o.region,
 		WorkspacePath:     o.workspacePath,
 		ConversationID:    o.conversationID,
 		ContinueSession:   o.continueSession,
@@ -393,6 +469,9 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 	o.frames = nil
 	o.pendingApproval = nil
 	o.liveTranscript = ""
+	o.region.Locked = true
+	lockedRegion := o.region
+	regionCB := o.onRegionEvent
 	o.sessionCancel = cancel
 	o.ringBuf.Clear()
 	o.timeline.Clear()
@@ -400,9 +479,14 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 	o.chunker.Reset()
 	o.mu.Unlock()
 
-	// 1. Start Capture (fMP4 + rolling ring buffer)
+	if regionCB != nil {
+		regionCB(lockedRegion)
+	}
+
+	// 1. Start Capture (fMP4 + rolling ring buffer cropped to locked CaptureRegion)
 	_ = o.capturer.Start(ctx, capture.Config{
 		Target:     *selected,
+		Region:     &lockedRegion,
 		OutputDir:  bDir,
 		VideoFile:  "recording.mp4",
 		FPS:        30,
@@ -475,6 +559,9 @@ func (o *Orchestrator) StopSession() (string, error) {
 	duration := o.ElapsedSeconds()
 	o.recording = false
 	o.paused = false
+	o.region.Locked = false
+	unlockedRegion := o.region
+	regionCB := o.onRegionEvent
 	cancel := o.sessionCancel
 	o.sessionCancel = nil
 
@@ -497,6 +584,10 @@ func (o *Orchestrator) StopSession() (string, error) {
 
 	// Flush any remaining batched utterances before shutdown
 	o.batcher.Flush()
+
+	if regionCB != nil {
+		regionCB(unlockedRegion)
+	}
 
 	o.speaker.StopImmediate()
 	_ = o.speechEng.Stop()

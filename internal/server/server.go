@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/jefflunt/xnk-iterate/internal/antigravity"
 	"github.com/jefflunt/xnk-iterate/internal/mcp"
+	"github.com/jefflunt/xnk-iterate/internal/model"
 	"github.com/jefflunt/xnk-iterate/internal/session"
 )
 
@@ -115,16 +116,17 @@ func (s *Server) handleFrame(w http.ResponseWriter, r *http.Request) {
 }
 
 type wsClientCommand struct {
-	Action          string `json:"action"`
-	TargetID        string `json:"target_id,omitempty"`
-	WorkspacePath   string `json:"workspace_path,omitempty"`
-	ConversationID  string `json:"conversation_id,omitempty"`
-	ContinueSession bool   `json:"continue_session,omitempty"`
-	Model           string `json:"model,omitempty"`
-	Mode            string `json:"mode,omitempty"`
-	Text            string `json:"text,omitempty"`
-	RequestID       string `json:"request_id,omitempty"`
-	Decision        string `json:"decision,omitempty"`
+	Action          string               `json:"action"`
+	TargetID        string               `json:"target_id,omitempty"`
+	WorkspacePath   string               `json:"workspace_path,omitempty"`
+	ConversationID  string               `json:"conversation_id,omitempty"`
+	ContinueSession bool                 `json:"continue_session,omitempty"`
+	Model           string               `json:"model,omitempty"`
+	Mode            string               `json:"mode,omitempty"`
+	Text            string               `json:"text,omitempty"`
+	RequestID       string               `json:"request_id,omitempty"`
+	Decision        string               `json:"decision,omitempty"`
+	Region          *model.CaptureRegion `json:"region,omitempty"`
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -209,6 +211,14 @@ func (s *Server) dispatchCommand(cmd wsClientCommand) {
 		s.orch.ToggleVoiceMute()
 	case "toggle_hud_mode":
 		s.orch.ToggleHUDCompactMode()
+	case "set_region":
+		if cmd.Region != nil {
+			s.orch.UpdateRegion(*cmd.Region, false)
+		}
+	case "toggle_detach_box":
+		s.orch.ToggleDetachCaptureBox()
+	case "update_settings":
+		s.orch.UpdateSettings(cmd.WorkspacePath, cmd.ConversationID, cmd.ContinueSession)
 	case "inject_utterance":
 		s.orch.SubmitUtterance(cmd.Text, 1.0)
 	case "resolve_approval":

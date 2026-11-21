@@ -29,3 +29,14 @@
 - Renamed all branding and documentation references from `XNK Capture` / `xnk-capture` to `XNK Iterate` / `xnk-iterate` (`dist/XNK Iterate.app`, `com.xnk.iterate`).
 - Hardened `.gitignore` to exclude binaries, build artifacts, logs, caches, and runtime recordings while preserving `cmd/` and `internal/`.
 - Bumped `VERSION` to `1.0.0` (`v1.0.0`).
+
+## 2026-11-21 — v1.1.0 Semi-Detachable Multi-Monitor Capture Box & Trimmed Studio UI
+
+### Summary
+- Redesigned the left capture pane into a pure interactive **Selection Drag Box** canvas with 8 resize handles, live `(W × H, x, y)` readout, display switcher, and a single floating bottom dock (`Start / Stop`, `Pause`, live mic waveform, `Batch ⌥B`, `Discard`).
+- Implemented `CaptureBoxController` (`internal/ui/capturebox.go`, `capturebox_darwin.go`, `capturebox_darwin.m`, `capturebox_other.go`):
+  - Detachable transparent borderless native macOS `NSWindow` (`NSWindowSharingNone`) moveable and resizable across multiple monitors independently of the Antigravity sidebar.
+  - Automatically locks position & size (`region.Locked = true`) and switches to full click-through (`ignoresMouseEvents = YES`) with a dashed Crimson `● REC LOCKED` frame while recording; unlocks on stop.
+- Updated `internal/capture/capturer_darwin.go` to crop `ffmpeg` (`-vf crop=...`) and `screencapture -R x,y,w,h` to the exact screen-space `CaptureRegion`.
+- Relocated Workspace path, Conversation ID, `--continue`, and OS permission readiness badges to the `⚙ Settings` drawer and compact sidebar workspace pill.
+- Added `TestCaptureRegionDetachAndLockBehavior` and bumped `VERSION` to `1.1.0` (`v1.1.0`).

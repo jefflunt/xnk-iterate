@@ -11,6 +11,7 @@ import (
 // Config defines parameters for starting a video/audio capture session.
 type Config struct {
 	Target      model.CaptureTarget
+	Region      *model.CaptureRegion
 	OutputDir   string
 	VideoFile   string
 	FPS         int
@@ -24,7 +25,7 @@ type Capturer interface {
 	ListTargets() ([]model.CaptureTarget, error)
 	Start(ctx context.Context, cfg Config) error
 	Stop() error
-	GrabSnapshot(ctx context.Context, target model.CaptureTarget) ([]byte, string, error)
+	GrabSnapshot(ctx context.Context, target model.CaptureTarget, region *model.CaptureRegion) ([]byte, string, error)
 	ScreenRecordingStatus() string
 }
 
