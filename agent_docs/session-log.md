@@ -40,3 +40,15 @@
 - Updated `internal/capture/capturer_darwin.go` to crop `ffmpeg` (`-vf crop=...`) and `screencapture -R x,y,w,h` to the exact screen-space `CaptureRegion`.
 - Relocated Workspace path, Conversation ID, `--continue`, and OS permission readiness badges to the `⚙ Settings` drawer and compact sidebar workspace pill.
 - Added `TestCaptureRegionDetachAndLockBehavior` and bumped `VERSION` to `1.1.0` (`v1.1.0`).
+
+## 2026-11-21 — v1.2.0 App Icon, AGY Wire Fix, Always-Detached Capture Box, Wide Chat UI, Folder Picker & Diagnostic Logs
+
+### Summary
+- Generated and bundled native macOS Retina app icon (`assets/AppIcon.icns`, `CFBundleIconFile = AppIcon`).
+- Fixed `agy --input-format stream-json --output-format stream-json` wire protocol in `internal/antigravity/controller.go` (`{"event":"user","message":{"content":"..."}}` input; nested `step_update.text_delta` and `result.response`/`result.error` parsing) and added live streaming AI reply bubble in chat.
+- Set AI Text-to-Speech (TTS) to **OFF by default** with a prominent top-bar `AI Voice: OFF / ON` toggle.
+- Made the transparent native macOS Capture Box **always detached** (removed redock mode) and redesigned the main Control Plane into a wide landscape standard chat interface (`1120×740`).
+- Fixed Stop button reliability via immediate non-blocking state reset/unlock in `Orchestrator.StopSession()` plus a `POST /api/stop` REST fallback.
+- Added structured rotating diagnostic logging (`internal/applog`, `~/Library/Logs/XNK Iterate/xnk-iterate.log`) with live log tail viewer inside `⚙ Settings` (`GET /api/logs`).
+- Added native macOS folder picker (`NSOpenPanel`, `POST /api/pick-folder`, `📂 Browse…` button) for selecting the Antigravity workspace directory.
+- Bumped `VERSION` to `1.2.0` (`v1.2.0`).

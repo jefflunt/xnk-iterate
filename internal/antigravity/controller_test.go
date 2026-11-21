@@ -26,37 +26,38 @@ func TestParseVoiceApprovalIntent(t *testing.T) {
 	}
 }
 
-func TestHandleStreamLines(t *testing.T) {
+func TestHandleRealAgyStreamJSONEvents(t *testing.T) {
 	var deltas []string
 	var finalMsg string
-	var permReq *model.PermissionRequest
 	var convID string
+	var gotErr error
 
 	ctrl := NewController(Callbacks{
-		OnConversationID: func(id string) { convID = id },
-		OnTextDelta:      func(d string) { deltas = append(deltas, d) },
-		OnAssistantMessage: func(full string) {
-			finalMsg = full
-		},
-		OnPermissionReq: func(req model.PermissionRequest) {
-			permReq = &req
-		},
+		OnConversationID:   func(id string) { convID = id },
+		OnTextDelta:        func(d string) { deltas = append(deltas, d) },
+		OnAssistantMessage: func(full string) { finalMsg = full },
+		OnError:            func(err error) { gotErr = err },
 	})
 
 	var buf strings.Builder
-	ctrl.handleStreamLine(`{"type":"init","conversation_id":"conv_999"}`, &buf)
-	ctrl.handleStreamLine(`{"type":"text_delta","delta":"Fixing the scoreboard now."}`, &buf)
-	ctrl.handleStreamLine(`{"type":"permission_request","request_id":"p1","tool_name":"run_command","command":"swift test","description":"Run unit tests"}`, &buf)
-	ctrl.handleStreamLine(`{"type":"turn_complete"}`, &buf)
+	ctrl.handleStreamLine(`{"event":"init","conversation_id":"4f49aa39-8df4-4d0b-a4bc-b408b76d222b"}`, &buf)
+	ctrl.handleStreamLine(`{"event":"step_update","step_update":{"conversation_id":"4f49aa39-8df4-4d0b-a4bc-b408b76d222b","step_index":1,"state":"ACTIVE","step_type":"agent_response","text_delta":"Fixed the button alignment."}}`, &buf)
+	ctrl.handleStreamLine(`{"event":"result","result":{"conversation_id":"4f49aa39-8df4-4d0b-a4bc-b408b76d222b","status":"SUCCESS","response":"Fixed the button alignment.\n"}}`, &buf)
 
-	if convID != "conv_999" {
-		t.Fatalf("expected conv_999, got %q", convID)
+	if convID != "4f49aa39-8df4-4d0b-a4bc-b408b76d222b" {
+		t.Fatalf("expected conversation ID, got %q", convID)
 	}
-	if len(deltas) != 1 || finalMsg != "Fixing the scoreboard now." {
+	if len(deltas) != 1 || finalMsg != "Fixed the button alignment." {
 		t.Fatalf("unexpected deltas=%v final=%q", deltas, finalMsg)
 	}
-	if permReq == nil || permReq.ID != "p1" || permReq.Command != "swift test" {
-		t.Fatalf("unexpected permission request: %+v", permReq)
+	if gotErr != nil {
+		t.Fatalf("did not expect error, got %v", gotErr)
+	}
+
+	// Verify ERROR result surfaces cleanly
+	ctrl.handleStreamLine(`{"event":"result","result":{"status":"ERROR","error":"stream input error"}}`, &buf)
+	if gotErr == nil || !strings.Contains(gotErr.Error(), "stream input error") {
+		t.Fatalf("expected error callback, got %v", gotErr)
 	}
 }
 

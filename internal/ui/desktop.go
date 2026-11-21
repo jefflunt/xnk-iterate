@@ -39,7 +39,7 @@ func (a *DesktopApp) SetCompactHUD(compact bool) {
 			w.SetSize(900, 148, webview.HintNone)
 			configureNativeWindow(w.Window(), true)
 		} else {
-			w.SetSize(1220, 800, webview.HintNone)
+			w.SetSize(1120, 740, webview.HintNone)
 			configureNativeWindow(w.Window(), false)
 		}
 	})
@@ -64,7 +64,7 @@ func (a *DesktopApp) Run() error {
 	}()
 
 	w.SetTitle(a.title)
-	w.SetSize(1220, 800, webview.HintNone)
+	w.SetSize(1120, 740, webview.HintNone)
 	w.SetSize(820, 130, webview.HintMin)
 
 	// Apply platform-specific native window styling (e.g., macOS capture self-exclusion)

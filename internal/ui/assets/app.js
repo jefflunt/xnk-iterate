@@ -1,14 +1,10 @@
 (() => {
   let ws = null;
   let state = null;
-  let displays = [];
   let audioLevel = 0;
   let waveformHistory = new Array(20).fill(0.08);
   let webSpeech = null;
   let webSpeechActive = false;
-
-  // Local docked drag-box state (mapped proportionally to selected display)
-  let dragState = null;
 
   const $ = (id) => document.getElementById(id);
 
@@ -25,13 +21,15 @@
     }
   }
 
+  function stopSessionReliably() {
+    send({ action: "stop_session" });
+    // Belt-and-suspenders REST fallback so Stop always works even if WS is reconnecting
+    fetch("/api/stop", { method: "POST" }).catch(() => {});
+  }
+
   function connectWS() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     ws = new WebSocket(`${proto}//${location.host}/ws`);
-
-    ws.onopen = () => {
-      refreshDisplays();
-    };
 
     ws.onmessage = (evt) => {
       try {
@@ -41,10 +39,6 @@
           renderState();
         } else if (msg.type === "audio_level") {
           audioLevel = msg.payload.level || 0;
-        } else if (msg.type === "live_frame") {
-          const img = $("live-preview-img");
-          img.src = msg.payload.data_url;
-          img.classList.remove("hidden");
         }
       } catch (e) {
         console.error("WS parse error", e);
@@ -52,196 +46,23 @@
     };
 
     ws.onclose = () => {
-      setTimeout(connectWS, 1200);
+      setTimeout(connectWS, 1000);
     };
   }
 
-  async function refreshDisplays() {
+  async function refreshLogs() {
     try {
-      const res = await fetch("/api/targets");
-      const all = await res.json();
-      displays = all.filter((t) => t.type === "display");
-      if (!displays.length && all.length) displays = [all[0]];
-
-      const sel = $("display-select");
-      sel.innerHTML = "";
-      displays.forEach((d, idx) => {
-        const opt = document.createElement("option");
-        opt.value = String(idx);
-        opt.textContent = `Display ${idx + 1} (${d.resolution.width}×${d.resolution.height})`;
-        sel.appendChild(opt);
-      });
-      syncSelectionBoxFromRegion();
+      const res = await fetch("/api/logs");
+      const data = await res.json();
+      $("log-file-path").textContent = data.path || "—";
+      const box = $("log-tail-box");
+      box.textContent = (data.lines && data.lines.length)
+        ? data.lines.join("\n")
+        : "No log entries yet.";
+      box.scrollTop = box.scrollHeight;
     } catch (e) {
-      console.error("Failed to fetch displays", e);
+      $("log-tail-box").textContent = "Failed to fetch logs: " + e;
     }
-  }
-
-  function activeDisplaySize() {
-    const idx = state?.region?.display_index || 0;
-    const d = displays[idx] || displays[0];
-    if (d && d.resolution && d.resolution.width > 0) {
-      return { w: d.resolution.width, h: d.resolution.height };
-    }
-    return { w: 1920, h: 1080 };
-  }
-
-  function syncSelectionBoxFromRegion() {
-    const r = state?.region;
-    if (!r) return;
-
-    const box = $("selection-box");
-    const canvas = $("desktop-canvas");
-    const cw = canvas.clientWidth || 740;
-    const ch = canvas.clientHeight || 680;
-    const disp = activeDisplaySize();
-
-    // Update text labels
-    $("selection-dim").textContent = `${r.width} × ${r.height}`;
-    $("selection-xy").textContent = `(x: ${r.x}, y: ${r.y})`;
-    $("selection-label").textContent = r.locked ? "● REC LOCKED" : "CAPTURE REGION";
-    box.classList.toggle("is-locked", !!r.locked);
-
-    // Detached state vs Docked state
-    const isDetached = !!r.detached;
-    box.classList.toggle("hidden", isDetached);
-    $("detached-notice").classList.toggle("hidden", !isDetached);
-    $("btn-detach-box").textContent = isDetached ? "⤓ Dock Box" : "⧉ Detach Box";
-    $("btn-detach-box").classList.toggle("is-active", isDetached);
-    $("btn-detach-box").disabled = !!r.locked;
-    $("btn-redock-box").disabled = !!r.locked;
-    $("btn-fullscreen-preset").disabled = !!r.locked;
-    $("display-select").disabled = !!r.locked;
-
-    $("detached-coords").textContent = `${r.width} × ${r.height} (x: ${r.x}, y: ${r.y}) · Display ${(r.display_index || 0) + 1}`;
-    $("detached-hint").innerHTML = r.locked
-      ? "Capture box is <strong>locked &amp; click-through</strong> while recording. Interact directly with the app inside it."
-      : "Drag and resize the cyan frame anywhere across your monitors. Once you press <strong>Start</strong>, it locks in place and becomes click-through.";
-
-    if (!dragState && !isDetached) {
-      const padX = 28;
-      const padTop = 52;
-      const padBottom = 78;
-      const availW = Math.max(200, cw - padX * 2);
-      const availH = Math.max(160, ch - padTop - padBottom);
-      const left = padX + Math.round((r.x / disp.w) * availW);
-      const top = padTop + Math.round((r.y / disp.h) * availH);
-      const width = Math.max(120, Math.round((r.width / disp.w) * availW));
-      const height = Math.max(80, Math.round((r.height / disp.h) * availH));
-      box.style.left = `${Math.min(cw - 140, Math.max(12, left))}px`;
-      box.style.top = `${Math.min(ch - 140, Math.max(40, top))}px`;
-      box.style.width = `${Math.min(cw - 24, width)}px`;
-      box.style.height = `${Math.min(ch - 120, height)}px`;
-    }
-  }
-
-  function pushBoxToBackend() {
-    if (state?.region?.locked) return;
-    const box = $("selection-box");
-    const canvas = $("desktop-canvas");
-    const cw = canvas.clientWidth || 740;
-    const ch = canvas.clientHeight || 680;
-    const disp = activeDisplaySize();
-
-    const padX = 28;
-    const padTop = 52;
-    const padBottom = 78;
-    const availW = Math.max(200, cw - padX * 2);
-    const availH = Math.max(160, ch - padTop - padBottom);
-
-    const bx = parseFloat(box.style.left) || 56;
-    const by = parseFloat(box.style.top) || 76;
-    const bw = parseFloat(box.style.width) || 520;
-    const bh = parseFloat(box.style.height) || 340;
-
-    const sx = Math.max(0, Math.round(((bx - padX) / availW) * disp.w));
-    const sy = Math.max(0, Math.round(((by - padTop) / availH) * disp.h));
-    const sw = Math.min(disp.w, Math.max(240, Math.round((bw / availW) * disp.w)));
-    const sh = Math.min(disp.h, Math.max(160, Math.round((bh / availH) * disp.h)));
-
-    $("selection-dim").textContent = `${sw} × ${sh}`;
-    $("selection-xy").textContent = `(x: ${sx}, y: ${sy})`;
-
-    send({
-      action: "set_region",
-      region: {
-        x: sx,
-        y: sy,
-        width: sw,
-        height: sh,
-        display_index: parseInt($("display-select").value || "0", 10),
-        detached: false,
-        locked: false,
-      },
-    });
-  }
-
-  function bindDragBox() {
-    const box = $("selection-box");
-    const canvas = $("desktop-canvas");
-
-    box.addEventListener("mousedown", (e) => {
-      if (state?.region?.locked) return;
-      e.preventDefault();
-      const handle = e.target.dataset?.handle || "move";
-      const rect = box.getBoundingClientRect();
-      const crect = canvas.getBoundingClientRect();
-      dragState = {
-        mode: handle,
-        startX: e.clientX,
-        startY: e.clientY,
-        left: rect.left - crect.left,
-        top: rect.top - crect.top,
-        width: rect.width,
-        height: rect.height,
-        maxW: crect.width,
-        maxH: crect.height,
-      };
-    });
-
-    window.addEventListener("mousemove", (e) => {
-      if (!dragState) return;
-      const dx = e.clientX - dragState.startX;
-      const dy = e.clientY - dragState.startY;
-      let { left, top, width, height } = dragState;
-      const minW = 140;
-      const minH = 96;
-
-      if (dragState.mode === "move") {
-        left = Math.max(8, Math.min(dragState.maxW - width - 8, left + dx));
-        top = Math.max(38, Math.min(dragState.maxH - height - 74, top + dy));
-      } else {
-        if (dragState.mode.includes("r")) {
-          width = Math.max(minW, Math.min(dragState.maxW - left - 8, width + dx));
-        }
-        if (dragState.mode.includes("l")) {
-          const nw = Math.max(minW, width - dx);
-          left = Math.max(8, left + (width - nw));
-          width = nw;
-        }
-        if (dragState.mode.includes("b")) {
-          height = Math.max(minH, Math.min(dragState.maxH - top - 74, height + dy));
-        }
-        if (dragState.mode.includes("t")) {
-          const nh = Math.max(minH, height - dy);
-          top = Math.max(38, top + (height - nh));
-          height = nh;
-        }
-      }
-
-      box.style.left = `${left}px`;
-      box.style.top = `${top}px`;
-      box.style.width = `${width}px`;
-      box.style.height = `${height}px`;
-      pushBoxToBackend();
-    });
-
-    window.addEventListener("mouseup", () => {
-      if (dragState) {
-        dragState = null;
-        pushBoxToBackend();
-      }
-    });
   }
 
   function renderState() {
@@ -255,7 +76,15 @@
       $("studio-shell").classList.remove("hidden");
     }
 
-    // Sync Settings inputs & Sidebar workspace pill
+    // Detached Capture Box readout
+    const r = state.region || { width: 1280, height: 720, display_index: 0, locked: false, visible: true };
+    $("region-readout").textContent = r.locked
+      ? `LOCKED ${r.width} × ${r.height} · Display ${(r.display_index || 0) + 1}`
+      : `${r.width} × ${r.height} · Display ${(r.display_index || 0) + 1}`;
+    $("frame-status-dot").classList.toggle("is-locked", !!r.locked);
+    $("btn-toggle-frame").textContent = r.visible ? "Hide Frame" : "Show Frame";
+
+    // Workspace & thread badge
     if (!$("workspace-input").value && state.workspace_path) {
       $("workspace-input").value = state.workspace_path;
     }
@@ -266,53 +95,66 @@
       ? "--continue"
       : "new thread";
 
-    // Timers & REC badges
+    // Timers & Recording controls
     const timeStr = fmtTime(state.elapsed_seconds);
     $("top-timer").textContent = timeStr;
     $("hud-timer").textContent = timeStr;
 
-    const topBadge = $("top-state-badge");
     const hudDot = $("hud-rec-dot");
     const hudLabel = $("hud-rec-label");
 
     if (state.recording) {
-      topBadge.textContent = state.paused ? "PAUSED" : "● REC LIVE";
-      topBadge.className = state.paused
-        ? "xnk-badge xnk-badge-amber xnk-badge-pill"
-        : "xnk-badge xnk-badge-crimson xnk-badge-pill";
       hudDot.classList.toggle("is-live", !state.paused);
       hudLabel.textContent = state.paused ? "PAUSED" : "REC";
-
       $("btn-start").classList.add("hidden");
       $("btn-stop").classList.remove("hidden");
       $("btn-pause").disabled = false;
       $("btn-pause").textContent = state.paused ? "▶" : "⏸";
       $("hud-pause-btn").textContent = state.paused ? "▶" : "⏸";
     } else {
-      topBadge.textContent = "STANDBY";
-      topBadge.className = "xnk-badge xnk-badge-pill";
       hudDot.classList.remove("is-live");
       hudLabel.textContent = "STANDBY";
-
       $("btn-start").classList.remove("hidden");
       $("btn-stop").classList.add("hidden");
       $("btn-pause").disabled = true;
-      $("live-preview-img").classList.add("hidden");
+      $("btn-pause").textContent = "⏸";
     }
 
-    // Antigravity state
+    // Antigravity status
     const agyState = (state.agent_state || "idle").toUpperCase();
     $("top-agy-badge").textContent = `AGY: ${agyState}`;
     $("agent-status-sub").textContent = state.agent_status_text || "Ready";
     $("hud-agy-status").textContent = `AGY: ${state.agent_state || "ready"}`;
     $("top-platform").textContent = state.permissions?.platform || "—";
+    if (state.log_file_path) {
+      $("log-file-path").textContent = state.log_file_path;
+    }
 
-    const isThinking = state.agent_state === "thinking" || state.agent_state === "working";
-    $("thinking-indicator").classList.toggle("hidden", !isThinking);
+    // Live Streaming AI Reply Bubble
+    const streamText = state.streaming_reply || "";
+    if (streamText) {
+      $("streaming-bubble-text").innerHTML = escapeHtml(streamText).replace(/\n/g, "<br/>");
+      $("streaming-bubble").classList.remove("hidden");
+      $("thinking-indicator").classList.add("hidden");
+      const scroller = $("panel-chat");
+      scroller.scrollTop = scroller.scrollHeight;
+    } else {
+      $("streaming-bubble").classList.add("hidden");
+      const isThinking = state.agent_state === "thinking" || state.agent_state === "working";
+      $("thinking-indicator").classList.toggle("hidden", !isThinking);
+    }
 
-    $("btn-mute-voice").textContent = state.voice_output_muted ? "🔇 Muted" : "🔊 Voice";
+    // AI TTS Voice Toggle (OFF by default)
+    const ttsBtn = $("btn-mute-voice");
+    if (state.voice_output_muted) {
+      ttsBtn.textContent = "🔇 AI Voice: OFF";
+      ttsBtn.className = "xnk-btn xnk-btn-secondary xnk-btn-sm";
+    } else {
+      ttsBtn.textContent = "🔊 AI Voice: ON";
+      ttsBtn.className = "xnk-btn xnk-btn-cobalt xnk-btn-sm";
+    }
 
-    // Batch mode
+    // Batch Mode
     const batchBadge = $("batch-status-badge");
     const hudBatchPill = $("hud-batch-pill");
     const flushBtn = $("btn-flush-batch");
@@ -335,13 +177,10 @@
     $("live-transcript-box").textContent = `🎙 ${liveText}`;
     $("hud-transcript").textContent = liveText;
 
-    // Region / Selection Box sync
-    syncSelectionBoxFromRegion();
-
     // Permissions inside Settings drawer
     renderPermissions(state.permissions);
 
-    // Voice Permission Approval
+    // Voice Permission Approval Callout
     const perm = state.pending_approval;
     if (perm) {
       const desc = perm.command
@@ -391,8 +230,8 @@
     if (!entries.length) {
       stream.innerHTML = `
         <div class="xnk-empty-state">
-          <strong>No live turns yet.</strong><br />
-          Position or detach the capture box, press <strong>Start</strong>, and speak naturally — or steer below.
+          <strong>Ready for live Voice + Vision direction.</strong><br />
+          Drag the detached cyan Capture Box over any app on any monitor, press <strong>Start Live Session</strong>, and talk naturally — Antigravity will reply right here.
         </div>`;
       return;
     }
@@ -501,7 +340,7 @@
   function toggleWebSpeech() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-      alert("Web Speech API is not supported in this WebView; native OS speech engine is used instead.");
+      alert("Web Speech API is not supported in this WebView; native macOS speech engine is used instead.");
       return;
     }
     if (webSpeechActive && webSpeech) {
@@ -532,42 +371,10 @@
   }
 
   function bindEvents() {
-    bindDragBox();
-
-    $("btn-detach-box").addEventListener("click", () => send({ action: "toggle_detach_box" }));
-    $("btn-redock-box").addEventListener("click", () => send({ action: "toggle_detach_box" }));
-
-    $("btn-fullscreen-preset").addEventListener("click", () => {
-      if (state?.region?.locked) return;
-      const disp = activeDisplaySize();
-      send({
-        action: "set_region",
-        region: {
-          x: 0,
-          y: 0,
-          width: disp.w,
-          height: disp.h,
-          display_index: parseInt($("display-select").value || "0", 10),
-          detached: !!state?.region?.detached,
-          locked: false,
-        },
-      });
-    });
-
-    $("display-select").addEventListener("change", () => {
-      if (state?.region?.locked) return;
-      const r = state?.region || { x: 120, y: 140, width: 1280, height: 720 };
-      send({
-        action: "set_region",
-        region: {
-          ...r,
-          display_index: parseInt($("display-select").value || "0", 10),
-        },
-      });
-    });
+    $("btn-toggle-frame").addEventListener("click", () => send({ action: "toggle_box_visible" }));
 
     $("btn-start").addEventListener("click", () => {
-      const dispIdx = parseInt($("display-select").value || "0", 10);
+      const dispIdx = state?.region?.display_index || 0;
       send({
         action: "start_session",
         target_id: `display:${dispIdx}`,
@@ -577,8 +384,8 @@
       });
     });
 
-    $("btn-stop").addEventListener("click", () => send({ action: "stop_session" }));
-    $("hud-stop-btn").addEventListener("click", () => send({ action: "stop_session" }));
+    $("btn-stop").addEventListener("click", stopSessionReliably);
+    $("hud-stop-btn").addEventListener("click", stopSessionReliably);
     $("btn-pause").addEventListener("click", () => send({ action: "toggle_pause" }));
     $("hud-pause-btn").addEventListener("click", () => send({ action: "toggle_pause" }));
     $("btn-batch").addEventListener("click", () => send({ action: "toggle_batch" }));
@@ -590,12 +397,28 @@
     $("hud-expand-btn").addEventListener("click", () => send({ action: "toggle_hud_mode" }));
     $("btn-web-mic").addEventListener("click", toggleWebSpeech);
 
-    // Settings Modal
-    const openSettings = () => $("settings-modal").classList.remove("hidden");
+    // Settings & Logs Modal
+    const openSettings = () => {
+      $("settings-modal").classList.remove("hidden");
+      refreshLogs();
+    };
     const closeSettings = () => $("settings-modal").classList.add("hidden");
     $("btn-settings").addEventListener("click", openSettings);
     $("workspace-pill-btn").addEventListener("click", openSettings);
     $("settings-close-btn").addEventListener("click", closeSettings);
+    $("btn-refresh-logs").addEventListener("click", refreshLogs);
+    $("btn-browse-folder").addEventListener("click", async () => {
+      try {
+        const res = await fetch("/api/pick-folder", { method: "POST" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.cancelled && data.path) {
+          $("workspace-input").value = data.path;
+        }
+      } catch (e) {
+        console.error("folder picker error", e);
+      }
+    });
     $("settings-save-btn").addEventListener("click", () => {
       send({
         action: "update_settings",
@@ -671,12 +494,10 @@
         } else if (!$("frame-modal").classList.contains("hidden")) {
           $("frame-modal").classList.add("hidden");
         } else if (state?.recording) {
-          send({ action: "stop_session" });
+          stopSessionReliably();
         }
       }
     });
-
-    window.addEventListener("resize", syncSelectionBoxFromRegion);
   }
 
   bindEvents();

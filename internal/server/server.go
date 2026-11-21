@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/jefflunt/xnk-iterate/internal/antigravity"
+	"github.com/jefflunt/xnk-iterate/internal/applog"
 	"github.com/jefflunt/xnk-iterate/internal/mcp"
 	"github.com/jefflunt/xnk-iterate/internal/model"
 	"github.com/jefflunt/xnk-iterate/internal/session"
@@ -27,11 +28,17 @@ var upgrader = websocket.Upgrader{
 
 // Server hosts the embedded XNK UI, REST endpoints, WebSocket hub, and Vision MCP endpoint.
 type Server struct {
-	orch      *session.Orchestrator
-	mcpServer *mcp.Server
-	mux       *http.ServeMux
-	listener  net.Listener
-	httpSrv   *http.Server
+	orch         *session.Orchestrator
+	mcpServer    *mcp.Server
+	mux          *http.ServeMux
+	listener     net.Listener
+	httpSrv      *http.Server
+	folderPicker func(initialDir string) (string, bool)
+}
+
+// SetFolderPicker registers the native OS directory picker callback.
+func (s *Server) SetFolderPicker(fn func(initialDir string) (string, bool)) {
+	s.folderPicker = fn
 }
 
 // New creates a local server bound to orchestrator and static frontend FS.
@@ -45,6 +52,9 @@ func New(orch *session.Orchestrator, assetsFS fs.FS) *Server {
 	s.mux.HandleFunc("/api/state", s.handleState)
 	s.mux.HandleFunc("/api/targets", s.handleTargets)
 	s.mux.HandleFunc("/api/frame", s.handleFrame)
+	s.mux.HandleFunc("/api/logs", s.handleLogs)
+	s.mux.HandleFunc("/api/stop", s.handleStop)
+	s.mux.HandleFunc("/api/pick-folder", s.handlePickFolder)
 	s.mux.Handle("/api/mcp", s.mcpServer)
 	s.mux.HandleFunc("/ws", s.handleWS)
 
@@ -115,6 +125,53 @@ func (s *Server) handleFrame(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, cleanTarget)
 }
 
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"path":  applog.Path(),
+		"lines": applog.Recent(120),
+	})
+}
+
+func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
+	applog.Info("server", "POST /api/stop received")
+	path, err := s.orch.StopSession()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"stopped":     true,
+		"bundle_path": path,
+		"error":       errString(err),
+	})
+}
+
+func (s *Server) handlePickFolder(w http.ResponseWriter, r *http.Request) {
+	if s.folderPicker == nil {
+		http.Error(w, "folder picker not available", http.StatusNotImplemented)
+		return
+	}
+	snap := s.orch.StateSnapshot()
+	applog.Info("server", "opening native folder picker (initial=%s)", snap.WorkspacePath)
+	picked, ok := s.folderPicker(snap.WorkspacePath)
+	w.Header().Set("Content-Type", "application/json")
+	if !ok || picked == "" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"cancelled": true})
+		return
+	}
+	applog.Info("server", "workspace folder selected: %s", picked)
+	s.orch.UpdateSettings(picked, snap.ConversationID, snap.ContinueSession)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"cancelled": false,
+		"path":      picked,
+	})
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 type wsClientCommand struct {
 	Action          string               `json:"action"`
 	TargetID        string               `json:"target_id,omitempty"`
@@ -183,21 +240,26 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) dispatchCommand(cmd wsClientCommand) {
+	applog.Info("ws", "command received: action=%s", cmd.Action)
 	switch cmd.Action {
 	case "start_session":
 		go func() {
-			_ = s.orch.StartSession(session.StartOptions{
+			if err := s.orch.StartSession(session.StartOptions{
 				TargetID:        cmd.TargetID,
 				WorkspacePath:   cmd.WorkspacePath,
 				ConversationID:  cmd.ConversationID,
 				ContinueSession: cmd.ContinueSession,
 				Model:           cmd.Model,
 				Mode:            cmd.Mode,
-			})
+			}); err != nil {
+				applog.Error("ws", "start_session error: %v", err)
+			}
 		}()
 	case "stop_session":
 		go func() {
-			_, _ = s.orch.StopSession()
+			if _, err := s.orch.StopSession(); err != nil {
+				applog.Error("ws", "stop_session error: %v", err)
+			}
 		}()
 	case "toggle_pause":
 		s.orch.TogglePause()
@@ -211,6 +273,8 @@ func (s *Server) dispatchCommand(cmd wsClientCommand) {
 		s.orch.ToggleVoiceMute()
 	case "toggle_hud_mode":
 		s.orch.ToggleHUDCompactMode()
+	case "toggle_box_visible":
+		s.orch.ToggleCaptureBoxVisible()
 	case "set_region":
 		if cmd.Region != nil {
 			s.orch.UpdateRegion(*cmd.Region, false)

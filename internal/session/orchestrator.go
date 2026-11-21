@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jefflunt/xnk-iterate/internal/antigravity"
+	"github.com/jefflunt/xnk-iterate/internal/applog"
 	"github.com/jefflunt/xnk-iterate/internal/batcher"
 	"github.com/jefflunt/xnk-iterate/internal/bundle"
 	"github.com/jefflunt/xnk-iterate/internal/capture"
@@ -73,6 +74,7 @@ type Orchestrator struct {
 	continueSession   bool
 	agentState        model.AgentState
 	agentStatusText   string
+	streamingReply    string
 	liveTranscript    string
 	audioLevel        float64
 	pendingApproval   *model.PermissionRequest
@@ -114,8 +116,9 @@ func NewOrchestrator(storageRoot string) *Orchestrator {
 			Width:        1280,
 			Height:       720,
 			DisplayIndex: 0,
-			Detached:     false,
+			Detached:     true,
 			Locked:       false,
+			Visible:      true,
 		},
 		workspacePath:   wd,
 		continueSession: true,
@@ -123,6 +126,9 @@ func NewOrchestrator(storageRoot string) *Orchestrator {
 		agentStatusText: "Ready to start live director session",
 		subscribers:     make(map[chan LiveEvent]struct{}),
 	}
+
+	// Default AI Text-to-Speech (TTS) to OFF — user speaks, AI replies silently in Live Feed unless toggled ON.
+	o.speaker.SetMuted(true)
 
 	o.timeline.SetCallback(func(ev model.InteractionEvent) {
 		o.mu.Lock()
@@ -163,15 +169,29 @@ func NewOrchestrator(storageRoot string) *Orchestrator {
 			o.broadcastState()
 		},
 		OnTextDelta: func(delta string) {
-			sentences := o.chunker.Push(delta)
-			for _, s := range sentences {
-				o.speaker.Speak(s)
+			o.mu.Lock()
+			o.streamingReply += delta
+			o.mu.Unlock()
+			o.broadcastState()
+
+			if !o.speaker.IsMuted() {
+				sentences := o.chunker.Push(delta)
+				for _, s := range sentences {
+					o.speaker.Speak(s)
+				}
 			}
 		},
 		OnAssistantMessage: func(fullText string) {
-			if rem := o.chunker.Flush(); rem != "" {
-				o.speaker.Speak(rem)
+			if !o.speaker.IsMuted() {
+				if rem := o.chunker.Flush(); rem != "" {
+					o.speaker.Speak(rem)
+				}
+			} else {
+				o.chunker.Reset()
 			}
+			o.mu.Lock()
+			o.streamingReply = ""
+			o.mu.Unlock()
 			o.appendChat(model.ChatEntry{
 				ID:        fmt.Sprintf("ai_%d", time.Now().UnixNano()),
 				Role:      "ai",
@@ -249,6 +269,12 @@ func (o *Orchestrator) UpdateRegion(r model.CaptureRegion, fromNative bool) {
 		r.Height = 160
 	}
 	r.Locked = false
+	r.Detached = true
+	if !fromNative {
+		r.Visible = true
+	} else {
+		r.Visible = o.region.Visible
+	}
 	o.region = r
 	cb := o.onRegionEvent
 	o.mu.Unlock()
@@ -259,16 +285,32 @@ func (o *Orchestrator) UpdateRegion(r model.CaptureRegion, fromNative bool) {
 	o.broadcastState()
 }
 
-// ToggleDetachCaptureBox switches the capture region between docked in Studio and a detached multi-monitor native overlay.
+// ToggleCaptureBoxVisible shows or hides the always-detached native Capture Box overlay.
+func (o *Orchestrator) ToggleCaptureBoxVisible() bool {
+	o.mu.Lock()
+	o.region.Visible = !o.region.Visible
+	o.region.Detached = true
+	r := o.region
+	cb := o.onRegionEvent
+	o.mu.Unlock()
+
+	applog.Info("session", "capture box visible=%v", r.Visible)
+	if cb != nil {
+		cb(r)
+	}
+	o.broadcastState()
+	return r.Visible
+}
+
+// ToggleDetachCaptureBox keeps the capture box always detached and toggles its visibility when unlocked.
 func (o *Orchestrator) ToggleDetachCaptureBox() bool {
 	o.mu.Lock()
 	if o.recording {
-		// Prevent detaching/re-docking while recording is locked
-		detached := o.region.Detached
 		o.mu.Unlock()
-		return detached
+		return true
 	}
-	o.region.Detached = !o.region.Detached
+	o.region.Detached = true
+	o.region.Visible = true
 	r := o.region
 	cb := o.onRegionEvent
 	o.mu.Unlock()
@@ -277,7 +319,7 @@ func (o *Orchestrator) ToggleDetachCaptureBox() bool {
 		cb(r)
 	}
 	o.broadcastState()
-	return r.Detached
+	return true
 }
 
 // UpdateSettings updates workspace, conversation ID, and continue flag from the Settings drawer.
@@ -403,6 +445,7 @@ func (o *Orchestrator) StateSnapshot() model.SessionStateSnapshot {
 		VoiceOutputMuted:  o.speaker.IsMuted(),
 		AgentState:        o.agentState,
 		AgentStatusText:   o.agentStatusText,
+		StreamingReply:    o.streamingReply,
 		LiveTranscript:    o.liveTranscript,
 		AudioLevel:        o.audioLevel,
 		PendingApproval:   o.pendingApproval,
@@ -410,6 +453,7 @@ func (o *Orchestrator) StateSnapshot() model.SessionStateSnapshot {
 		ChatHistory:       chat,
 		Permissions:       o.Permissions(),
 		LastBundlePath:    o.lastBundlePath,
+		LogFilePath:       applog.Path(),
 		HUDCompactMode:    o.hudCompactMode,
 		RecentInteraction: o.recentInteraction,
 	}
@@ -469,6 +513,9 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 	o.frames = nil
 	o.pendingApproval = nil
 	o.liveTranscript = ""
+	o.streamingReply = ""
+	o.region.Detached = true
+	o.region.Visible = true
 	o.region.Locked = true
 	lockedRegion := o.region
 	regionCB := o.onRegionEvent
@@ -478,6 +525,12 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 	o.batcher.Clear()
 	o.chunker.Reset()
 	o.mu.Unlock()
+
+	applog.Info("session", "StartSession id=%s target=%s region=(%d,%d %dx%d disp=%d) workspace=%s",
+		capID, selected.Title, lockedRegion.X, lockedRegion.Y, lockedRegion.Width, lockedRegion.Height, lockedRegion.DisplayIndex, wsPath)
+
+	// Broadcast recording=true immediately so UI transitions to Stop button right away
+	o.broadcastState()
 
 	if regionCB != nil {
 		regionCB(lockedRegion)
@@ -553,13 +606,19 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 func (o *Orchestrator) StopSession() (string, error) {
 	o.mu.Lock()
 	if !o.recording {
+		last := o.lastBundlePath
 		o.mu.Unlock()
-		return o.lastBundlePath, nil
+		applog.Info("session", "StopSession called while not recording")
+		return last, nil
 	}
 	duration := o.ElapsedSeconds()
 	o.recording = false
 	o.paused = false
 	o.region.Locked = false
+	o.liveTranscript = ""
+	o.streamingReply = ""
+	o.audioLevel = 0
+	o.pendingApproval = nil
 	unlockedRegion := o.region
 	regionCB := o.onRegionEvent
 	cancel := o.sessionCancel
@@ -582,34 +641,41 @@ func (o *Orchestrator) StopSession() (string, error) {
 	bDir := o.bundleDir
 	o.mu.Unlock()
 
-	// Flush any remaining batched utterances before shutdown
-	o.batcher.Flush()
+	applog.Info("session", "StopSession triggered (id=%s duration=%.1fs)", manifest.CaptureID, duration)
 
+	// Immediately unlock Capture Box and notify UI so the Stop button responds instantaneously!
 	if regionCB != nil {
 		regionCB(unlockedRegion)
 	}
+	o.broadcastState()
 
+	// Shut down all child subsystems non-blockingly with telemetry
+	o.batcher.Clear()
 	o.speaker.StopImmediate()
-	_ = o.speechEng.Stop()
-	o.tracker.Stop()
-	_ = o.capturer.Stop()
-	o.agyCtrl.Stop()
 	if cancel != nil {
 		cancel()
 	}
+	if err := o.speechEng.Stop(); err != nil {
+		applog.Warn("session", "speech stop warning: %v", err)
+	}
+	o.tracker.Stop()
+	if err := o.capturer.Stop(); err != nil {
+		applog.Warn("session", "capturer stop warning: %v", err)
+	}
+	o.agyCtrl.Stop()
 
 	exportedPath, err := bundle.Export(bDir, manifest)
-	if err == nil {
+	if err != nil {
+		applog.Error("session", "bundle export failed: %v", err)
+	} else {
+		applog.Info("session", "bundle exported cleanly to %s", exportedPath)
 		o.mu.Lock()
 		o.lastBundlePath = exportedPath
-		o.liveTranscript = ""
-		o.audioLevel = 0
-		o.pendingApproval = nil
 		o.mu.Unlock()
 		o.appendChat(model.ChatEntry{
 			ID:        fmt.Sprintf("sys_%d", time.Now().UnixNano()),
 			Role:      "system",
-			Text:      fmt.Sprintf("Session sealed and exported to %s", exportedPath),
+			Text:      fmt.Sprintf("Session stopped & archived to %s", exportedPath),
 			Timestamp: time.Now(),
 		})
 	}

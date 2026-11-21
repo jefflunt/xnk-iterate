@@ -41,6 +41,7 @@ type CaptureRegion struct {
 	DisplayIndex int  `json:"display_index"`
 	Detached     bool `json:"detached"`
 	Locked       bool `json:"locked"`
+	Visible      bool `json:"visible"`
 }
 
 // CaptureTarget describes an available or selected display/window capture source.
@@ -194,6 +195,7 @@ type SessionStateSnapshot struct {
 	VoiceOutputMuted  bool               `json:"voice_output_muted"`
 	AgentState        AgentState         `json:"agent_state"`
 	AgentStatusText   string             `json:"agent_status_text"`
+	StreamingReply    string             `json:"streaming_reply,omitempty"`
 	LiveTranscript    string             `json:"live_transcript"`
 	AudioLevel        float64            `json:"audio_level"`
 	PendingApproval   *PermissionRequest `json:"pending_approval,omitempty"`
@@ -201,6 +203,7 @@ type SessionStateSnapshot struct {
 	ChatHistory       []ChatEntry        `json:"chat_history"`
 	Permissions       PermissionStatus   `json:"permissions"`
 	LastBundlePath    string             `json:"last_bundle_path,omitempty"`
+	LogFilePath       string             `json:"log_file_path,omitempty"`
 	HUDCompactMode    bool               `json:"hud_compact_mode"`
 	RecentInteraction *InteractionEvent  `json:"recent_interaction,omitempty"`
 }
