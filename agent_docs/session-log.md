@@ -59,3 +59,9 @@
 - Applied a proper transparent RGBA macOS squircle mask + subtle drop shadow and metallic hairline border to `assets/icon_1024.png` (`hasAlpha: yes`) and rebuilt `assets/AppIcon.icns` with all 11 Apple ICNS sizes (`16px`–`1024px`).
 - Embedded `internal/ui/assets/icon.png` to set `[NSApp setApplicationIconImage:]` at runtime in `internal/ui/window_darwin.go` (so Dock & Cmd+Tab always show the icon even when run via `make run`) and added `<link rel="icon">` in `index.html`.
 - Added `touch "$(MAC_APP)"` in `Makefile` to trigger immediate macOS Finder icon cache refresh, and bumped `VERSION` to `1.2.1` (`v1.2.1`).
+
+## 2026-11-21 — v1.2.2 Native macOS Main Menu (`Cmd+Q` Quit & Standard Edit/Window Shortcuts)
+
+### Summary
+- Added native Cocoa `NSMenu` (`setupMacMainMenu`) in `internal/ui/window_darwin.go` with App menu (`Cmd+Q` Quit, `Cmd+H` Hide), Edit menu (`Cmd+Z/X/C/V/A`), and Window menu (`Cmd+W` Close, `Cmd+M` Minimize) so `Cmd+Q` quits cleanly without force-quitting.
+- Bumped `VERSION` to `1.2.2` (`v1.2.2`).
