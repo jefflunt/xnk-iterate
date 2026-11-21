@@ -8,6 +8,17 @@ package ui
 #import <Cocoa/Cocoa.h>
 #include <stdbool.h>
 
+static void setMacAppIcon(const void *pngBytes, int length) {
+    if (pngBytes == NULL || length <= 0) return;
+    NSData *data = [NSData dataWithBytes:pngBytes length:(NSUInteger)length];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSImage *img = [[NSImage alloc] initWithData:data];
+        if (img != nil) {
+            [NSApp setApplicationIconImage:img];
+        }
+    });
+}
+
 static void configureMacWindow(void *winPtr, bool floatingCompact) {
     if (winPtr == NULL) return;
     NSWindow *win = (__bridge NSWindow *)winPtr;
@@ -28,9 +39,23 @@ static void configureMacWindow(void *winPtr, bool floatingCompact) {
 }
 */
 import "C"
-import "unsafe"
+import (
+	_ "embed"
+	"sync"
+	"unsafe"
+)
+
+//go:embed assets/icon.png
+var embeddedAppIconPNG []byte
+
+var appIconOnce sync.Once
 
 func configureNativeWindow(windowPtr unsafe.Pointer, floatingCompact bool) {
+	appIconOnce.Do(func() {
+		if len(embeddedAppIconPNG) > 0 {
+			C.setMacAppIcon(unsafe.Pointer(&embeddedAppIconPNG[0]), C.int(len(embeddedAppIconPNG)))
+		}
+	})
 	if windowPtr == nil {
 		return
 	}

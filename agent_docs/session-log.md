@@ -52,3 +52,10 @@
 - Added structured rotating diagnostic logging (`internal/applog`, `~/Library/Logs/XNK Iterate/xnk-iterate.log`) with live log tail viewer inside `⚙ Settings` (`GET /api/logs`).
 - Added native macOS folder picker (`NSOpenPanel`, `POST /api/pick-folder`, `📂 Browse…` button) for selecting the Antigravity workspace directory.
 - Bumped `VERSION` to `1.2.0` (`v1.2.0`).
+
+## 2026-11-21 — v1.2.1 Transparent macOS Squircle App Icon & Dock Icon Binding
+
+### Summary
+- Applied a proper transparent RGBA macOS squircle mask + subtle drop shadow and metallic hairline border to `assets/icon_1024.png` (`hasAlpha: yes`) and rebuilt `assets/AppIcon.icns` with all 11 Apple ICNS sizes (`16px`–`1024px`).
+- Embedded `internal/ui/assets/icon.png` to set `[NSApp setApplicationIconImage:]` at runtime in `internal/ui/window_darwin.go` (so Dock & Cmd+Tab always show the icon even when run via `make run`) and added `<link rel="icon">` in `index.html`.
+- Added `touch "$(MAC_APP)"` in `Makefile` to trigger immediate macOS Finder icon cache refresh, and bumped `VERSION` to `1.2.1` (`v1.2.1`).
