@@ -148,21 +148,29 @@ const (
 	AgentError            AgentState = "error"
 )
 
-// PermissionRequest represents a pending tool approval emitted by the owned agy session.
+// PermissionOption represents a selectable ACP permission outcome (e.g. Allow Once, Allow Always, Deny).
+type PermissionOption struct {
+	OptionID string `json:"option_id"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"` // "allow_once", "allow_always", "reject_once", "reject_always"
+}
+
+// PermissionRequest represents a pending interactive tool approval emitted by `agy acp`.
 type PermissionRequest struct {
-	ID          string    `json:"id"`
-	ToolName    string    `json:"tool_name"`
-	Description string    `json:"description"`
-	Command     string    `json:"command,omitempty"`
-	RequestedAt time.Time `json:"requested_at"`
+	ID          string             `json:"id"`
+	ToolName    string             `json:"tool_name"`
+	Description string             `json:"description"`
+	Command     string             `json:"command,omitempty"`
+	Options     []PermissionOption `json:"options,omitempty"`
+	RequestedAt time.Time          `json:"requested_at"`
 }
 
 // ChatEntry represents a message in the embedded Antigravity live conversation feed.
 type ChatEntry struct {
 	ID         string    `json:"id"`
-	Role       string    `json:"role"` // "user", "ai", "system", "tool"
+	Role       string    `json:"role"` // "user", "ai", "system"
 	Text       string    `json:"text"`
-	ToolName   string    `json:"tool_name,omitempty"`
+	ToolSteps  []string  `json:"tool_steps,omitempty"`
 	FramePaths []string  `json:"frame_paths,omitempty"`
 	Timestamp  time.Time `json:"timestamp"`
 }
@@ -192,9 +200,11 @@ type SessionStateSnapshot struct {
 	WorkspacePath     string             `json:"workspace_path"`
 	ConversationID    string             `json:"conversation_id,omitempty"`
 	ContinueSession   bool               `json:"continue_session"`
+	SilenceTimeoutMS  int                `json:"silence_timeout_ms"`
 	VoiceOutputMuted  bool               `json:"voice_output_muted"`
 	AgentState        AgentState         `json:"agent_state"`
 	AgentStatusText   string             `json:"agent_status_text"`
+	ActiveTools       []string           `json:"active_tools,omitempty"`
 	StreamingReply    string             `json:"streaming_reply,omitempty"`
 	LiveTranscript    string             `json:"live_transcript"`
 	AudioLevel        float64            `json:"audio_level"`

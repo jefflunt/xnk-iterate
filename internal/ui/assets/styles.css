@@ -158,6 +158,20 @@ html, body {
   text-align: center;
 }
 
+#btn-stop,
+#hud-stop-btn {
+  background: var(--xnk-accent-crimson) !important;
+  border-color: var(--xnk-accent-crimson) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 18px var(--xnk-accent-crimson-glow);
+}
+
+#btn-stop:hover,
+#hud-stop-btn:hover {
+  background: var(--xnk-accent-crimson-hover) !important;
+  border-color: var(--xnk-accent-crimson-hover) !important;
+}
+
 /* Session Sub-Bar */
 .session-subbar {
   border-bottom: 1px solid var(--xnk-border-subtle);
@@ -300,6 +314,41 @@ html, body {
   background: var(--xnk-surface-2);
   border: 1px solid var(--xnk-border-hairline);
   color: var(--xnk-accent-cyan);
+}
+
+.active-tools-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: var(--xnk-radius-full);
+  background: var(--xnk-surface-2);
+  border: 1px solid var(--xnk-border-hairline);
+  font-family: var(--xnk-font-mono);
+  font-size: 0.72rem;
+  color: var(--xnk-text-secondary);
+}
+
+.tool-details {
+  margin-bottom: 8px;
+  font-family: var(--xnk-font-mono);
+  font-size: 0.7rem;
+  color: var(--xnk-text-muted);
+}
+
+.tool-details summary {
+  cursor: pointer;
+  color: var(--xnk-accent-cyan);
+  user-select: none;
+}
+
+.tool-details ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .sys-note {

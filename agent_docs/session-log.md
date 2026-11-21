@@ -65,3 +65,14 @@
 ### Summary
 - Added native Cocoa `NSMenu` (`setupMacMainMenu`) in `internal/ui/window_darwin.go` with App menu (`Cmd+Q` Quit, `Cmd+H` Hide), Edit menu (`Cmd+Z/X/C/V/A`), and Window menu (`Cmd+W` Close, `Cmd+M` Minimize) so `Cmd+Q` quits cleanly without force-quitting.
 - Bumped `VERSION` to `1.2.2` (`v1.2.2`).
+
+## 2026-11-21 — v1.3.0 `agy acp` Interactive Approvals, 1.8s Pause, Collapsible Tool Steps, Stop Fix & Clean App Termination
+
+### Summary
+- Fixed `StopSession()` `RWMutex` self-deadlock (`o.elapsedLocked()`) + vivid solid Crimson Stop button + `TestStopSessionDoesNotDeadlock`.
+- Upgraded Antigravity integration (`internal/antigravity/controller.go`) from headless `stream-json` to **`agy acp --stdio` (Agent Client Protocol JSON-RPC 2.0)** with native ACP base64 image attachments and true interactive `session/request_permission` prompts (`Allow once ⌘Y`, `Allow always`, `Reject ⌘N`, plus voice approvals).
+- Raised default auto-send silence pause from `0.48s` to **`1.8s`** (configurable `1.2s / 1.8s / 2.5s` in Settings, plus Browser STT debounce) while subtracting `silence_offset` so `speechEnd` and lookback timestamps stay exact.
+- Collapsed noisy tool call chips into a single live status pill while active and a collapsible `▸ N tool steps` `<details>` disclosure inside each AI reply.
+- Added persistent app config (`internal/config/store.go`, `~/Library/Application Support/XNK Iterate/config.json`) remembering workspace path, silence pause, AI Voice mute state, and Capture Box geometry across restarts.
+- Added `NSWindowWillCloseNotification` + `NSApplicationWillTerminateNotification` cleanup observers (`internal/ui/window_darwin.m`) so closing the main window or pressing `Cmd+Q` always destroys the detached Capture Box, stops child helpers, and exits cleanly with zero background lingering.
+- Bumped `VERSION` to `1.3.0` (`v1.3.0`).

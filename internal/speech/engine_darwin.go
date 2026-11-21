@@ -76,7 +76,7 @@ func ensureSwiftHelperBinary() (string, error) {
 	return binPath, nil
 }
 
-func (d *darwinEngine) Start(ctx context.Context, elapsedFn func() float64, onEvent func(Event)) error {
+func (d *darwinEngine) Start(ctx context.Context, silenceTimeoutMS int, elapsedFn func() float64, onEvent func(Event)) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.running {
@@ -92,8 +92,12 @@ func (d *darwinEngine) Start(ctx context.Context, elapsedFn func() float64, onEv
 		return nil
 	}
 
+	if silenceTimeoutMS < 400 {
+		silenceTimeoutMS = 1800
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(runCtx, binPath)
+	cmd.Env = append(os.Environ(), fmt.Sprintf("XNK_SILENCE_MS=%d", silenceTimeoutMS))
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()

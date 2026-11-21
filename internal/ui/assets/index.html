@@ -134,11 +134,11 @@
     <main class="chat-stage">
       <div class="chat-column">
 
-        <!-- Voice Permission Approval Callout -->
+        <!-- Voice Permission Approval Callout (Dynamic ACP Options) -->
         <div id="studio-approval-box" class="xnk-callout xnk-callout-warning hidden">
-          <div class="xnk-callout-title">⚡ Antigravity Permission Request — Say “Approve” or “Deny”</div>
+          <div id="studio-approval-title" class="xnk-callout-title">⚡ Antigravity Permission Request — Say “Approve” or “Deny”</div>
           <p id="studio-approval-desc" class="xnk-callout-body approval-cmd"></p>
-          <div class="approval-actions">
+          <div id="studio-approval-actions" class="approval-actions">
             <button id="studio-approve-btn" class="xnk-btn xnk-btn-cobalt xnk-btn-sm" type="button">✓ Approve <span class="xnk-kbd">⌘Y</span></button>
             <button id="studio-deny-btn" class="xnk-btn xnk-btn-danger xnk-btn-sm" type="button">✕ Deny <span class="xnk-kbd">⌘N</span></button>
           </div>
@@ -164,6 +164,12 @@
               <span class="xnk-chat-msg-role"><span class="xnk-orb-avatar"></span> Antigravity (Streaming…)</span>
             </div>
             <div id="streaming-bubble-text" class="xnk-prose"></div>
+          </div>
+
+          <!-- Compact Live Tool Activity Pill (Zero Chat Spam) -->
+          <div id="active-tools-pill" class="active-tools-pill hidden">
+            <span class="xnk-thinking-dots"><span></span><span></span><span></span></span>
+            <span id="active-tools-text">Working…</span>
           </div>
 
           <!-- Thinking Indicator -->
@@ -228,12 +234,21 @@
           <label class="field-label" for="conv-id-input">Conversation ID (Optional)</label>
           <input id="conv-id-input" class="xnk-input" type="text" placeholder="Auto or resume ID" />
         </div>
-        <div class="settings-section checkbox-align">
-          <label class="toggle-label">
-            <input id="continue-checkbox" type="checkbox" checked />
-            <span>Resume latest thread (<code>--continue</code>)</span>
-          </label>
+        <div class="settings-section">
+          <label class="field-label" for="silence-select">Auto-Send Pause (Silence Wait)</label>
+          <select id="silence-select" class="xnk-select">
+            <option value="1200">1.2 seconds (Snappy)</option>
+            <option value="1800" selected>1.8 seconds (Balanced — Default)</option>
+            <option value="2500">2.5 seconds (Relaxed)</option>
+          </select>
         </div>
+      </div>
+
+      <div class="settings-section">
+        <label class="toggle-label">
+          <input id="continue-checkbox" type="checkbox" checked />
+          <span>Resume latest thread (<code>--continue</code>)</span>
+        </label>
       </div>
 
       <div class="settings-section">

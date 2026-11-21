@@ -65,3 +65,24 @@ func TestCaptureRegionDetachAndLockBehavior(t *testing.T) {
 		t.Fatalf("expected region to stay locked at 1440 during recording, got %+v", snap2.Region)
 	}
 }
+
+func TestStopSessionDoesNotDeadlock(t *testing.T) {
+	o := NewOrchestrator(t.TempDir())
+	o.mu.Lock()
+	o.recording = true
+	o.captureID = "cap_deadlock_test"
+	o.bundleDir = t.TempDir()
+	o.startedAt = o.startedAt.Add(-1)
+	o.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = o.StopSession()
+		close(done)
+	}()
+
+	<-done
+	if o.StateSnapshot().Recording {
+		t.Fatalf("expected recording=false after StopSession")
+	}
+}

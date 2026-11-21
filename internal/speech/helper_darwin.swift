@@ -10,6 +10,7 @@ struct SpeechJSONEvent: Encodable {
     let level: Double?
     let text: String?
     let confidence: Float?
+    let silence_offset: Double?
     let message: String?
 }
 
@@ -36,17 +37,22 @@ final class LiveSpeechRunner {
 
     private let vadThreshold: Float = 0.025
     private let minSpeechDuration: TimeInterval = 0.20
-    private let silenceTimeout: TimeInterval = 0.48
+    private let silenceTimeout: TimeInterval = {
+        if let raw = ProcessInfo.processInfo.environment["XNK_SILENCE_MS"], let ms = Double(raw), ms >= 400 {
+            return ms / 1000.0
+        }
+        return 1.80 // 1.8s natural pause before auto-dispatching
+    }()
 
     func start() {
         SFSpeechRecognizer.requestAuthorization { authStatus in
             DispatchQueue.main.async {
                 switch authStatus {
                 case .authorized:
-                    emit(SpeechJSONEvent(type: "status", level: nil, text: nil, confidence: nil, message: "speech_authorized"))
+                    emit(SpeechJSONEvent(type: "status", level: nil, text: nil, confidence: nil, silence_offset: nil, message: "speech_authorized"))
                     self.startAudioAndRecognition()
                 default:
-                    emit(SpeechJSONEvent(type: "error", level: nil, text: nil, confidence: nil, message: "speech_permission_denied"))
+                    emit(SpeechJSONEvent(type: "error", level: nil, text: nil, confidence: nil, silence_offset: nil, message: "speech_permission_denied"))
                 }
             }
         }
@@ -65,7 +71,7 @@ final class LiveSpeechRunner {
             self.recognitionRequest?.append(buffer)
             let rms = self.computeRMS(buffer: buffer)
             let normalized = min(1.0, Double(rms * 8.0))
-            emit(SpeechJSONEvent(type: "audio_level", level: normalized, text: nil, confidence: nil, message: nil))
+            emit(SpeechJSONEvent(type: "audio_level", level: normalized, text: nil, confidence: nil, silence_offset: nil, message: nil))
 
             let now = Date()
             if rms > self.vadThreshold {
@@ -75,7 +81,7 @@ final class LiveSpeechRunner {
                 }
                 if !self.isSpeaking, let started = self.speechActiveSince, now.timeIntervalSince(started) >= self.minSpeechDuration {
                     self.isSpeaking = true
-                    emit(SpeechJSONEvent(type: "vad_start", level: normalized, text: nil, confidence: nil, message: nil))
+                    emit(SpeechJSONEvent(type: "vad_start", level: normalized, text: nil, confidence: nil, silence_offset: nil, message: nil))
                 }
             } else {
                 if !self.isSpeaking {
@@ -89,9 +95,9 @@ final class LiveSpeechRunner {
         audioEngine.prepare()
         do {
             try audioEngine.start()
-            emit(SpeechJSONEvent(type: "status", level: nil, text: nil, confidence: nil, message: "audio_running"))
+            emit(SpeechJSONEvent(type: "status", level: nil, text: nil, confidence: nil, silence_offset: nil, message: "audio_running"))
         } catch {
-            emit(SpeechJSONEvent(type: "error", level: nil, text: nil, confidence: nil, message: "audio_start_failed: \(error.localizedDescription)"))
+            emit(SpeechJSONEvent(type: "error", level: nil, text: nil, confidence: nil, silence_offset: nil, message: "audio_start_failed: \(error.localizedDescription)"))
         }
     }
 
@@ -118,7 +124,7 @@ final class LiveSpeechRunner {
                     if let seg = result.bestTranscription.segments.last, seg.confidence > 0 {
                         self.lastConfidence = seg.confidence
                     }
-                    emit(SpeechJSONEvent(type: "partial", level: nil, text: text, confidence: self.lastConfidence, message: nil))
+                    emit(SpeechJSONEvent(type: "partial", level: nil, text: text, confidence: self.lastConfidence, silence_offset: nil, message: nil))
                 }
                 if result.isFinal {
                     self.finalizeUtterance()
@@ -133,15 +139,16 @@ final class LiveSpeechRunner {
     private func finalizeUtterance() {
         guard isSpeaking || !currentTranscript.isEmpty else { return }
         let finalText = currentTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let silenceOffset = lastVoiceAt != nil ? Date().timeIntervalSince(lastVoiceAt!) : 0.0
         isSpeaking = false
         speechActiveSince = nil
         lastVoiceAt = nil
         currentTranscript = ""
 
         if !finalText.isEmpty {
-            emit(SpeechJSONEvent(type: "final", level: nil, text: finalText, confidence: lastConfidence, message: nil))
+            emit(SpeechJSONEvent(type: "final", level: nil, text: finalText, confidence: lastConfidence, silence_offset: silenceOffset, message: nil))
         }
-        emit(SpeechJSONEvent(type: "vad_end", level: nil, text: nil, confidence: nil, message: nil))
+        emit(SpeechJSONEvent(type: "vad_end", level: nil, text: nil, confidence: nil, silence_offset: nil, message: nil))
         restartRecognitionRequest()
     }
 

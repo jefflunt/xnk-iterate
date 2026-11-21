@@ -17,6 +17,7 @@ import (
 	"github.com/jefflunt/xnk-iterate/internal/batcher"
 	"github.com/jefflunt/xnk-iterate/internal/bundle"
 	"github.com/jefflunt/xnk-iterate/internal/capture"
+	"github.com/jefflunt/xnk-iterate/internal/config"
 	"github.com/jefflunt/xnk-iterate/internal/interaction"
 	"github.com/jefflunt/xnk-iterate/internal/lookback"
 	"github.com/jefflunt/xnk-iterate/internal/model"
@@ -72,8 +73,11 @@ type Orchestrator struct {
 	workspacePath     string
 	conversationID    string
 	continueSession   bool
+	silenceTimeoutMS  int
 	agentState        model.AgentState
 	agentStatusText   string
+	activeToolMap     map[string]string
+	activeToolOrder   []string
 	streamingReply    string
 	liveTranscript    string
 	audioLevel        float64
@@ -96,39 +100,54 @@ type Orchestrator struct {
 // NewOrchestrator wires all subsystems for the current OS platform.
 func NewOrchestrator(storageRoot string) *Orchestrator {
 	if storageRoot == "" {
-		wd, _ := os.Getwd()
-		storageRoot = filepath.Join(wd, "storage", "recordings")
+		if home, err := os.UserHomeDir(); err == nil {
+			storageRoot = filepath.Join(home, "Library", "Application Support", "XNK Iterate", "recordings")
+		} else {
+			wd, _ := os.Getwd()
+			storageRoot = filepath.Join(wd, "storage", "recordings")
+		}
 	}
-	wd, _ := os.Getwd()
+
+	persisted := config.Load("")
+	defaultRegion := model.CaptureRegion{
+		X:            120,
+		Y:            140,
+		Width:        1280,
+		Height:       720,
+		DisplayIndex: 0,
+		Detached:     true,
+		Locked:       false,
+		Visible:      true,
+	}
+	if persisted.Region != nil && persisted.Region.Width >= 240 && persisted.Region.Height >= 160 {
+		defaultRegion = *persisted.Region
+		defaultRegion.Detached = true
+		defaultRegion.Locked = false
+		defaultRegion.Visible = true
+	}
 
 	o := &Orchestrator{
-		storageRoot:     storageRoot,
-		capturer:        capture.NewPlatformCapturer(),
-		tracker:         interaction.NewPlatformTracker(),
-		speechEng:       speech.NewPlatformEngine(),
-		speaker:         voice.NewPlatformSpeaker(),
-		lookbackEng:     lookback.New(),
-		ringBuf:         ringbuffer.New(30.0, 90),
-		timeline:        interaction.NewTimeline(5000),
-		region: model.CaptureRegion{
-			X:            120,
-			Y:            140,
-			Width:        1280,
-			Height:       720,
-			DisplayIndex: 0,
-			Detached:     true,
-			Locked:       false,
-			Visible:      true,
-		},
-		workspacePath:   wd,
-		continueSession: true,
-		agentState:      model.AgentIdle,
-		agentStatusText: "Ready to start live director session",
-		subscribers:     make(map[chan LiveEvent]struct{}),
+		storageRoot:      storageRoot,
+		capturer:         capture.NewPlatformCapturer(),
+		tracker:          interaction.NewPlatformTracker(),
+		speechEng:        speech.NewPlatformEngine(),
+		speaker:          voice.NewPlatformSpeaker(),
+		lookbackEng:      lookback.New(),
+		ringBuf:          ringbuffer.New(30.0, 90),
+		timeline:         interaction.NewTimeline(5000),
+		region:           defaultRegion,
+		workspacePath:    persisted.WorkspacePath,
+		conversationID:   persisted.ConversationID,
+		continueSession:  persisted.ContinueSession,
+		silenceTimeoutMS: persisted.SilenceTimeoutMS,
+		agentState:       model.AgentIdle,
+		agentStatusText:  "Ready to start live director session",
+		activeToolMap:    make(map[string]string),
+		subscribers:      make(map[chan LiveEvent]struct{}),
 	}
 
-	// Default AI Text-to-Speech (TTS) to OFF — user speaks, AI replies silently in Live Feed unless toggled ON.
-	o.speaker.SetMuted(true)
+	// Default AI Text-to-Speech (TTS) to persisted preference (OFF by default).
+	o.speaker.SetMuted(persisted.VoiceOutputMuted)
 
 	o.timeline.SetCallback(func(ev model.InteractionEvent) {
 		o.mu.Lock()
@@ -191,26 +210,34 @@ func NewOrchestrator(storageRoot string) *Orchestrator {
 			}
 			o.mu.Lock()
 			o.streamingReply = ""
+			steps := o.collectActiveToolsLocked()
+			o.activeToolMap = make(map[string]string)
+			o.activeToolOrder = nil
 			o.mu.Unlock()
 			o.appendChat(model.ChatEntry{
 				ID:        fmt.Sprintf("ai_%d", time.Now().UnixNano()),
 				Role:      "ai",
 				Text:      fullText,
+				ToolSteps: steps,
 				Timestamp: time.Now(),
 			})
 		},
-		OnToolCall: func(toolName, detail string) {
-			msg := toolName
-			if detail != "" {
-				msg = fmt.Sprintf("%s — %s", toolName, detail)
+		OnToolCall: func(toolID, title, status string) {
+			o.mu.Lock()
+			key := toolID
+			if key == "" {
+				key = fmt.Sprintf("step_%d", len(o.activeToolOrder)+1)
 			}
-			o.appendChat(model.ChatEntry{
-				ID:        fmt.Sprintf("tool_%d", time.Now().UnixNano()),
-				Role:      "tool",
-				ToolName:  toolName,
-				Text:      msg,
-				Timestamp: time.Now(),
-			})
+			label := title
+			if status != "" {
+				label = fmt.Sprintf("%s (%s)", title, status)
+			}
+			if _, exists := o.activeToolMap[key]; !exists {
+				o.activeToolOrder = append(o.activeToolOrder, key)
+			}
+			o.activeToolMap[key] = label
+			o.mu.Unlock()
+			o.broadcastState()
 		},
 		OnPermissionReq: func(req model.PermissionRequest) {
 			o.mu.Lock()
@@ -322,16 +349,45 @@ func (o *Orchestrator) ToggleDetachCaptureBox() bool {
 	return true
 }
 
-// UpdateSettings updates workspace, conversation ID, and continue flag from the Settings drawer.
-func (o *Orchestrator) UpdateSettings(workspacePath, convID string, continueSession bool) {
+// UpdateSettings updates workspace, conversation ID, continue flag, and silence timeout and persists them.
+func (o *Orchestrator) UpdateSettings(workspacePath, convID string, continueSession bool, silenceTimeoutMS int) {
 	o.mu.Lock()
 	if strings.TrimSpace(workspacePath) != "" {
 		o.workspacePath = strings.TrimSpace(workspacePath)
 	}
 	o.conversationID = strings.TrimSpace(convID)
 	o.continueSession = continueSession
+	if silenceTimeoutMS >= 500 {
+		o.silenceTimeoutMS = silenceTimeoutMS
+	}
+	o.saveConfigLocked()
 	o.mu.Unlock()
 	o.broadcastState()
+}
+
+func (o *Orchestrator) saveConfigLocked() {
+	reg := o.region
+	_ = config.Save("", config.AppConfig{
+		WorkspacePath:    o.workspacePath,
+		ConversationID:   o.conversationID,
+		ContinueSession:  o.continueSession,
+		SilenceTimeoutMS: o.silenceTimeoutMS,
+		VoiceOutputMuted: o.speaker.IsMuted(),
+		Region:           &reg,
+	})
+}
+
+func (o *Orchestrator) collectActiveToolsLocked() []string {
+	if len(o.activeToolOrder) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(o.activeToolOrder))
+	for _, k := range o.activeToolOrder {
+		if v, ok := o.activeToolMap[k]; ok {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // Subscribe returns a channel receiving real-time LiveEvents.
@@ -394,6 +450,11 @@ func (o *Orchestrator) Permissions() model.PermissionStatus {
 func (o *Orchestrator) ElapsedSeconds() float64 {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
+	return o.elapsedLocked()
+}
+
+// elapsedLocked computes elapsed seconds; caller MUST hold o.mu (read or write).
+func (o *Orchestrator) elapsedLocked() float64 {
 	if !o.recording {
 		return 0
 	}
@@ -442,9 +503,11 @@ func (o *Orchestrator) StateSnapshot() model.SessionStateSnapshot {
 		WorkspacePath:     o.workspacePath,
 		ConversationID:    o.conversationID,
 		ContinueSession:   o.continueSession,
+		SilenceTimeoutMS:  o.silenceTimeoutMS,
 		VoiceOutputMuted:  o.speaker.IsMuted(),
 		AgentState:        o.agentState,
 		AgentStatusText:   o.agentStatusText,
+		ActiveTools:       o.collectActiveToolsLocked(),
 		StreamingReply:    o.streamingReply,
 		LiveTranscript:    o.liveTranscript,
 		AudioLevel:        o.audioLevel,
@@ -571,8 +634,11 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 	// 2. Start Interaction Tracker
 	_ = o.tracker.Start(o.ElapsedSeconds, o.timeline)
 
-	// 3. Start Native Speech / VAD Engine
-	_ = o.speechEng.Start(ctx, o.ElapsedSeconds, o.handleSpeechEvent)
+	// 3. Start Native Speech / VAD Engine with configured silence timeout
+	o.mu.RLock()
+	silenceMS := o.silenceTimeoutMS
+	o.mu.RUnlock()
+	_ = o.speechEng.Start(ctx, silenceMS, o.ElapsedSeconds, o.handleSpeechEvent)
 
 	// 4. Spawn Owned Google Antigravity (`agy`) Session
 	err := o.agyCtrl.Start(ctx, antigravity.SessionConfig{
@@ -611,7 +677,7 @@ func (o *Orchestrator) StopSession() (string, error) {
 		applog.Info("session", "StopSession called while not recording")
 		return last, nil
 	}
-	duration := o.ElapsedSeconds()
+	duration := o.elapsedLocked()
 	o.recording = false
 	o.paused = false
 	o.region.Locked = false
@@ -739,10 +805,13 @@ func (o *Orchestrator) DiscardLastUtterance() bool {
 	return false
 }
 
-// ToggleVoiceMute mutes or unmutes Antigravity spoken TTS responses.
+// ToggleVoiceMute mutes or unmutes Antigravity spoken TTS responses and persists the preference.
 func (o *Orchestrator) ToggleVoiceMute() bool {
 	next := !o.speaker.IsMuted()
 	o.speaker.SetMuted(next)
+	o.mu.Lock()
+	o.saveConfigLocked()
+	o.mu.Unlock()
 	o.broadcastState()
 	return next
 }
@@ -762,8 +831,8 @@ func (o *Orchestrator) ToggleHUDCompactMode() bool {
 	return compact
 }
 
-// ResolveApproval sends a user approve/deny decision to the pending Antigravity permission request.
-func (o *Orchestrator) ResolveApproval(requestID string, decision antigravity.ApprovalDecision) error {
+// ResolveApproval sends a user approve/deny (or specific ACP optionId) decision to the pending Antigravity permission request.
+func (o *Orchestrator) ResolveApproval(requestID string, optionID string, decision antigravity.ApprovalDecision) error {
 	o.mu.Lock()
 	pending := o.pendingApproval
 	if pending != nil && (requestID == "" || pending.ID == requestID) {
@@ -777,19 +846,17 @@ func (o *Orchestrator) ResolveApproval(requestID string, decision antigravity.Ap
 		o.broadcastState()
 		return nil
 	}
-	err := o.agyCtrl.ResolvePermission(requestID, decision)
-	o.appendChat(model.ChatEntry{
-		ID:        fmt.Sprintf("sys_%d", time.Now().UnixNano()),
-		Role:      "system",
-		Text:      fmt.Sprintf("Permission %s: %sd", requestID, decision),
-		Timestamp: time.Now(),
-	})
+	err := o.agyCtrl.ResolvePermission(requestID, optionID, decision)
 	o.broadcastState()
 	return err
 }
 
 // SubmitUtterance allows injecting a finalized director utterance (from native STT, Web Speech API, or manual input).
 func (o *Orchestrator) SubmitUtterance(text string, confidence float32) {
+	o.submitUtteranceWithOffset(text, confidence, 0)
+}
+
+func (o *Orchestrator) submitUtteranceWithOffset(text string, confidence float32, silenceOffsetSec float64) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return
@@ -804,7 +871,7 @@ func (o *Orchestrator) SubmitUtterance(text string, confidence float32) {
 
 	if pending != nil {
 		if decision := antigravity.ParseVoiceApprovalIntent(text); decision != antigravity.DecisionNone {
-			_ = o.ResolveApproval(pending.ID, decision)
+			_ = o.ResolveApproval(pending.ID, "", decision)
 			return
 		}
 	}
@@ -813,7 +880,11 @@ func (o *Orchestrator) SubmitUtterance(text string, confidence float32) {
 		return
 	}
 
-	nowTS := o.ElapsedSeconds()
+	// Anchor speechEnd to when the user actually finished speaking (subtracting silence debounce wait!)
+	nowTS := o.ElapsedSeconds() - silenceOffsetSec
+	if nowTS < 0 {
+		nowTS = 0
+	}
 	o.mu.Lock()
 	speechStart := o.speechStartedAt
 	if speechStart <= 0 || speechStart > nowTS {
@@ -890,7 +961,7 @@ func (o *Orchestrator) handleSpeechEvent(ev speech.Event) {
 		o.broadcastState()
 
 	case speech.EventFinal:
-		o.SubmitUtterance(ev.Text, ev.Confidence)
+		o.submitUtteranceWithOffset(ev.Text, ev.Confidence, ev.SilenceOffset)
 
 	case speech.EventVADEnd:
 		o.mu.Lock()

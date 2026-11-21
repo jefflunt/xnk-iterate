@@ -51,6 +51,13 @@ func main() {
 	captureBox := ui.NewPlatformCaptureBox()
 	defer captureBox.Destroy()
 
+	ui.SetOnTerminate(func() {
+		applog.Info("main", "application terminating — stopping session and destroying Capture Box")
+		captureBox.Destroy()
+		_, _ = orch.StopSession()
+		_ = srv.Close()
+	})
+
 	captureBox.SetOnRegionChange(func(r model.CaptureRegion) {
 		orch.UpdateRegion(r, true)
 	})

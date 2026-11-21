@@ -158,7 +158,7 @@ func (s *Server) handlePickFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	applog.Info("server", "workspace folder selected: %s", picked)
-	s.orch.UpdateSettings(picked, snap.ConversationID, snap.ContinueSession)
+	s.orch.UpdateSettings(picked, snap.ConversationID, snap.ContinueSession, snap.SilenceTimeoutMS)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"cancelled": false,
 		"path":      picked,
@@ -176,14 +176,16 @@ type wsClientCommand struct {
 	Action          string               `json:"action"`
 	TargetID        string               `json:"target_id,omitempty"`
 	WorkspacePath   string               `json:"workspace_path,omitempty"`
-	ConversationID  string               `json:"conversation_id,omitempty"`
-	ContinueSession bool                 `json:"continue_session,omitempty"`
-	Model           string               `json:"model,omitempty"`
-	Mode            string               `json:"mode,omitempty"`
-	Text            string               `json:"text,omitempty"`
-	RequestID       string               `json:"request_id,omitempty"`
-	Decision        string               `json:"decision,omitempty"`
-	Region          *model.CaptureRegion `json:"region,omitempty"`
+	ConversationID   string               `json:"conversation_id,omitempty"`
+	ContinueSession  bool                 `json:"continue_session,omitempty"`
+	SilenceTimeoutMS int                  `json:"silence_timeout_ms,omitempty"`
+	Model            string               `json:"model,omitempty"`
+	Mode             string               `json:"mode,omitempty"`
+	Text             string               `json:"text,omitempty"`
+	RequestID        string               `json:"request_id,omitempty"`
+	OptionID         string               `json:"option_id,omitempty"`
+	Decision         string               `json:"decision,omitempty"`
+	Region           *model.CaptureRegion `json:"region,omitempty"`
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -282,7 +284,7 @@ func (s *Server) dispatchCommand(cmd wsClientCommand) {
 	case "toggle_detach_box":
 		s.orch.ToggleDetachCaptureBox()
 	case "update_settings":
-		s.orch.UpdateSettings(cmd.WorkspacePath, cmd.ConversationID, cmd.ContinueSession)
+		s.orch.UpdateSettings(cmd.WorkspacePath, cmd.ConversationID, cmd.ContinueSession, cmd.SilenceTimeoutMS)
 	case "inject_utterance":
 		s.orch.SubmitUtterance(cmd.Text, 1.0)
 	case "resolve_approval":
@@ -290,6 +292,6 @@ func (s *Server) dispatchCommand(cmd wsClientCommand) {
 		if cmd.Decision == "approve" {
 			dec = antigravity.DecisionApprove
 		}
-		_ = s.orch.ResolveApproval(cmd.RequestID, dec)
+		_ = s.orch.ResolveApproval(cmd.RequestID, cmd.OptionID, dec)
 	}
 }

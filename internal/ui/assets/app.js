@@ -84,9 +84,12 @@
     $("frame-status-dot").classList.toggle("is-locked", !!r.locked);
     $("btn-toggle-frame").textContent = r.visible ? "Hide Frame" : "Show Frame";
 
-    // Workspace & thread badge
+    // Workspace, silence timeout & thread badge
     if (!$("workspace-input").value && state.workspace_path) {
       $("workspace-input").value = state.workspace_path;
+    }
+    if (state.silence_timeout_ms && $("silence-select")) {
+      $("silence-select").value = String(state.silence_timeout_ms);
     }
     $("sidebar-workspace-path").textContent = `📁 ${state.workspace_path || "Select workspace…"}`;
     $("sidebar-thread-badge").textContent = state.conversation_id
@@ -130,6 +133,16 @@
       $("log-file-path").textContent = state.log_file_path;
     }
 
+    // Compact Live Tool Activity Pill (Zero Chat Spam)
+    const activeTools = state.active_tools || [];
+    if (activeTools.length > 0 && (state.agent_state === "working" || state.agent_state === "thinking" || state.agent_state === "awaiting_approval")) {
+      const latest = activeTools[activeTools.length - 1];
+      $("active-tools-text").textContent = `${latest} (${activeTools.length} ${activeTools.length === 1 ? "step" : "steps"})`;
+      $("active-tools-pill").classList.remove("hidden");
+    } else {
+      $("active-tools-pill").classList.add("hidden");
+    }
+
     // Live Streaming AI Reply Bubble
     const streamText = state.streaming_reply || "";
     if (streamText) {
@@ -140,7 +153,7 @@
       scroller.scrollTop = scroller.scrollHeight;
     } else {
       $("streaming-bubble").classList.add("hidden");
-      const isThinking = state.agent_state === "thinking" || state.agent_state === "working";
+      const isThinking = state.agent_state === "thinking" && activeTools.length === 0;
       $("thinking-indicator").classList.toggle("hidden", !isThinking);
     }
 
@@ -180,13 +193,14 @@
     // Permissions inside Settings drawer
     renderPermissions(state.permissions);
 
-    // Voice Permission Approval Callout
+    // Voice / Interactive ACP Permission Approval Callout
     const perm = state.pending_approval;
     if (perm) {
       const desc = perm.command
         ? `${perm.tool_name}: ${perm.command}`
         : `${perm.tool_name}: ${perm.description || "Confirm action"}`;
       $("studio-approval-desc").textContent = desc;
+      renderApprovalButtons(perm);
       $("studio-approval-box").classList.remove("hidden");
       $("hud-approval-text").textContent = desc;
       $("hud-approval-strip").classList.remove("hidden");
@@ -225,6 +239,26 @@
     return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
+  function renderApprovalButtons(perm) {
+    const box = $("studio-approval-actions");
+    const opts = perm.options || [];
+    if (!opts.length) {
+      box.innerHTML = `
+        <button class="xnk-btn xnk-btn-cobalt xnk-btn-sm" data-perm-dec="approve">✓ Approve <span class="xnk-kbd">⌘Y</span></button>
+        <button class="xnk-btn xnk-btn-danger xnk-btn-sm" data-perm-dec="deny">✕ Deny <span class="xnk-kbd">⌘N</span></button>`;
+      return;
+    }
+    box.innerHTML = opts
+      .map((o) => {
+        const isReject = (o.kind || "").startsWith("reject");
+        const isOnce = o.kind === "allow_once";
+        const cls = isReject ? "xnk-btn-danger" : isOnce ? "xnk-btn-cobalt" : "xnk-btn-secondary";
+        const kbd = isOnce ? ' <span class="xnk-kbd">⌘Y</span>' : isReject ? ' <span class="xnk-kbd">⌘N</span>' : "";
+        return `<button class="xnk-btn ${cls} xnk-btn-sm" data-perm-opt="${escapeHtml(o.option_id)}" data-perm-dec="${isReject ? "deny" : "approve"}">${escapeHtml(o.name || o.option_id)}${kbd}</button>`;
+      })
+      .join("");
+  }
+
   function renderChat(entries) {
     const stream = $("chat-stream");
     if (!entries.length) {
@@ -239,10 +273,16 @@
     stream.innerHTML = entries
       .map((e) => {
         if (e.role === "system") return `<div class="sys-note">${escapeHtml(e.text)}</div>`;
-        if (e.role === "tool") return `<div class="tool-chip">⚙ ${escapeHtml(e.text)}</div>`;
         const cls = e.role === "user" ? "is-user" : "is-ai";
         const roleLabel = e.role === "user" ? "Director (Voice)" : `<span class="xnk-orb-avatar"></span> Antigravity`;
         const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+        let toolsHtml = "";
+        if (e.tool_steps && e.tool_steps.length) {
+          toolsHtml =
+            `<details class="tool-details"><summary>▸ ${e.tool_steps.length} tool ${e.tool_steps.length === 1 ? "step" : "steps"}</summary><ul>` +
+            e.tool_steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("") +
+            `</ul></details>`;
+        }
         let thumbs = "";
         if (e.frame_paths && e.frame_paths.length) {
           thumbs =
@@ -261,6 +301,7 @@
               <span class="xnk-chat-msg-role">${roleLabel}</span>
               <span class="xnk-chat-msg-time">${ts}</span>
             </div>
+            ${toolsHtml}
             <div class="xnk-prose">${escapeHtml(e.text).replace(/\n/g, "<br/>")}</div>
             ${thumbs}
           </div>`;
@@ -353,15 +394,32 @@
     webSpeech.continuous = true;
     webSpeech.interimResults = true;
     webSpeech.lang = "en-US";
+    let webSpeechBuffer = "";
+    let webSpeechTimer = null;
     webSpeech.onresult = (e) => {
+      let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const text = e.results[i][0].transcript;
         if (e.results[i].isFinal) {
-          send({ action: "inject_utterance", text });
+          webSpeechBuffer = (webSpeechBuffer + " " + text).trim();
         } else {
-          $("live-transcript-box").textContent = `🎙 ${text}`;
-          $("hud-transcript").textContent = text;
+          interim += text;
         }
+      }
+      const display = (webSpeechBuffer + " " + interim).trim();
+      if (display) {
+        $("live-transcript-box").textContent = `🎙 ${display}`;
+        $("hud-transcript").textContent = display;
+      }
+      if (webSpeechBuffer) {
+        clearTimeout(webSpeechTimer);
+        const waitMS = state?.silence_timeout_ms || 1800;
+        webSpeechTimer = setTimeout(() => {
+          if (webSpeechBuffer.trim()) {
+            send({ action: "inject_utterance", text: webSpeechBuffer.trim() });
+            webSpeechBuffer = "";
+          }
+        }, waitMS);
       }
     };
     webSpeech.onend = () => { if (webSpeechActive) webSpeech.start(); };
@@ -425,17 +483,23 @@
         workspace_path: $("workspace-input").value.trim(),
         conversation_id: $("conv-id-input").value.trim(),
         continue_session: $("continue-checkbox").checked,
+        silence_timeout_ms: parseInt($("silence-select")?.value || "1800", 10),
       });
       closeSettings();
     });
 
-    // Approvals
-    const approve = () => send({ action: "resolve_approval", request_id: state?.pending_approval?.id || "", decision: "approve" });
-    const deny = () => send({ action: "resolve_approval", request_id: state?.pending_approval?.id || "", decision: "deny" });
-    $("studio-approve-btn").addEventListener("click", approve);
-    $("studio-deny-btn").addEventListener("click", deny);
-    $("hud-approve-btn").addEventListener("click", approve);
-    $("hud-deny-btn").addEventListener("click", deny);
+    // Dynamic ACP Approval Option Buttons (delegated)
+    const approve = (optId = "") => send({ action: "resolve_approval", request_id: state?.pending_approval?.id || "", option_id: optId, decision: "approve" });
+    const deny = (optId = "") => send({ action: "resolve_approval", request_id: state?.pending_approval?.id || "", option_id: optId, decision: "deny" });
+    $("studio-approval-actions").addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-perm-dec]");
+      if (!btn) return;
+      const optId = btn.dataset.permOpt || "";
+      if (btn.dataset.permDec === "deny") deny(optId);
+      else approve(optId);
+    });
+    $("hud-approve-btn").addEventListener("click", () => approve(""));
+    $("hud-deny-btn").addEventListener("click", () => deny(""));
 
     // Tabs
     $("tab-chat").addEventListener("click", () => {

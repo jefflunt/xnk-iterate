@@ -15,7 +15,7 @@ func NewPlatformEngine() Engine {
 
 func (f *fallbackEngine) MicrophoneStatus() string { return "unknown" }
 func (f *fallbackEngine) SpeechStatus() string     { return "unknown" }
-func (f *fallbackEngine) Start(ctx context.Context, elapsedFn func() float64, onEvent func(Event)) error {
+func (f *fallbackEngine) Start(ctx context.Context, silenceTimeoutMS int, elapsedFn func() float64, onEvent func(Event)) error {
 	if onEvent != nil {
 		onEvent(Event{Type: EventStatus, Message: "using_ui_speech_bridge"})
 	}

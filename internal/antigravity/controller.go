@@ -3,6 +3,7 @@ package antigravity
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,50 +12,69 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jefflunt/xnk-iterate/internal/applog"
 	"github.com/jefflunt/xnk-iterate/internal/model"
 )
 
-// SessionConfig configures an owned Google Antigravity (`agy`) child session.
+// SessionConfig configures an owned Google Antigravity (`agy acp`) child session.
 type SessionConfig struct {
 	WorkspacePath   string
 	ConversationID  string
 	ContinueSession bool
 	Model           string
-	Mode            string // "accept-edits", "auto", "plan"
+	Mode            string
 	AgyBinary       string // Optional override for testing
 }
 
-// Callbacks receive real-time events streamed from the owned `agy` process.
+// Callbacks receive real-time events streamed from the owned `agy acp` process.
 type Callbacks struct {
 	OnStateChange      func(state model.AgentState, statusText string)
 	OnConversationID   func(convID string)
 	OnTextDelta        func(delta string)
 	OnAssistantMessage func(fullText string)
-	OnToolCall         func(toolName string, detail string)
+	OnToolCall         func(toolID string, title string, status string)
 	OnPermissionReq    func(req model.PermissionRequest)
 	OnError            func(err error)
 }
 
-// Controller spawns, owns, and communicates with a live Google Antigravity (`agy`) session
-// using newline-delimited JSON (`--input-format stream-json --output-format stream-json`).
-type Controller struct {
-	mu          sync.Mutex
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	cancel      context.CancelFunc
-	running     bool
-	cfg         SessionConfig
-	callbacks   Callbacks
-	pendingPerm *model.PermissionRequest
+type pendingACPPerm struct {
+	rpcID   any
+	options []model.PermissionOption
 }
 
-// NewController creates an Antigravity Session Controller.
+// Controller spawns, owns, and communicates with a live Google Antigravity session
+// using the Agent Client Protocol (`agy acp --stdio`, JSON-RPC 2.0), enabling true
+// interactive tool-permission prompts, native image attachments, and streaming replies.
+type Controller struct {
+	mu           sync.Mutex
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	cancel       context.CancelFunc
+	running      bool
+	sessionID    string
+	sessionReady chan struct{}
+	cfg          SessionConfig
+	callbacks    Callbacks
+	nextRPCID    atomic.Int64
+	activePrompt int64
+	pendingPerms map[string]pendingACPPerm
+	assembled    strings.Builder
+	queuedTurns  []queuedPrompt
+}
+
+type queuedPrompt struct {
+	text       string
+	framePaths []string
+}
+
+// NewController creates an Antigravity ACP Session Controller.
 func NewController(cb Callbacks) *Controller {
 	return &Controller{
-		callbacks: cb,
+		callbacks:    cb,
+		pendingPerms: make(map[string]pendingACPPerm),
 	}
 }
 
@@ -77,7 +97,7 @@ func FindAgyBinary() (string, bool) {
 	return "", false
 }
 
-// Start spawns the owned `agy` process in stream-json mode for the given workspace.
+// Start spawns `agy acp --stdio` and performs the ACP initialize + session/new handshake.
 func (c *Controller) Start(ctx context.Context, cfg SessionConfig) error {
 	c.mu.Lock()
 	if c.running {
@@ -90,36 +110,24 @@ func (c *Controller) Start(ctx context.Context, cfg SessionConfig) error {
 		found, ok := FindAgyBinary()
 		if !ok {
 			c.mu.Unlock()
-			applog.Error("agy", "agy CLI binary not found on PATH or standard locations")
+			applog.Error("agy-acp", "agy CLI binary not found")
 			c.emitState(model.AgentError, "agy CLI not found on PATH")
 			return fmt.Errorf("agy CLI binary not found")
 		}
 		bin = found
 	}
 
-	args := []string{
-		"--input-format", "stream-json",
-		"--output-format", "stream-json",
+	cwd := cfg.WorkspacePath
+	if cwd == "" || cwd == "/" {
+		if home, err := os.UserHomeDir(); err == nil {
+			cwd = home
+		}
 	}
-	if cfg.ConversationID != "" {
-		args = append(args, "--conversation", cfg.ConversationID)
-	} else if cfg.ContinueSession {
-		args = append(args, "--continue")
-	}
-	if cfg.Model != "" {
-		args = append(args, "--model", cfg.Model)
-	}
-	if cfg.Mode != "" {
-		args = append(args, "--mode", cfg.Mode)
-	}
-	// Attach empty print prompt so agy enters streaming NDJSON loop on stdin.
-	args = append(args, "-p=")
 
+	args := []string{"acp", "--stdio"}
 	runCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(runCtx, bin, args...)
-	if cfg.WorkspacePath != "" {
-		cmd.Dir = cfg.WorkspacePath
-	}
+	cmd.Dir = cwd
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -140,13 +148,13 @@ func (c *Controller) Start(ctx context.Context, cfg SessionConfig) error {
 		return err
 	}
 
-	applog.Info("agy", "spawning %s %s (cwd=%s)", bin, strings.Join(args, " "), cmd.Dir)
-	c.emitState(model.AgentStarting, "Launching Google Antigravity session...")
+	applog.Info("agy-acp", "spawning %s %s (cwd=%s)", bin, strings.Join(args, " "), cwd)
+	c.emitState(model.AgentStarting, "Connecting to Google Antigravity (ACP)...")
 	if err := cmd.Start(); err != nil {
 		cancel()
 		c.mu.Unlock()
-		applog.Error("agy", "failed to start agy: %v", err)
-		c.emitState(model.AgentError, "Failed to launch agy: "+err.Error())
+		applog.Error("agy-acp", "failed to start agy acp: %v", err)
+		c.emitState(model.AgentError, "Failed to launch agy acp: "+err.Error())
 		return err
 	}
 
@@ -154,11 +162,17 @@ func (c *Controller) Start(ctx context.Context, cfg SessionConfig) error {
 	c.stdin = stdin
 	c.cancel = cancel
 	c.cfg = cfg
+	c.cfg.WorkspacePath = cwd
 	c.running = true
+	c.sessionID = ""
+	c.sessionReady = make(chan struct{})
+	c.activePrompt = 0
+	c.assembled.Reset()
+	c.pendingPerms = make(map[string]pendingACPPerm)
+	c.queuedTurns = nil
 	c.mu.Unlock()
 
-	applog.Info("agy", "agy started (pid=%d)", cmd.Process.Pid)
-	c.emitState(model.AgentListening, "Antigravity live session active")
+	applog.Info("agy-acp", "agy acp started (pid=%d)", cmd.Process.Pid)
 
 	go c.readStdout(stdout)
 	go c.readStderr(stderr)
@@ -170,109 +184,171 @@ func (c *Controller) Start(ctx context.Context, cfg SessionConfig) error {
 		c.stdin = nil
 		c.cmd = nil
 		c.mu.Unlock()
-		applog.Info("agy", "agy process exited (wasRunning=%v err=%v)", wasRunning, err)
+		applog.Info("agy-acp", "agy acp exited (wasRunning=%v err=%v)", wasRunning, err)
 		if wasRunning {
 			if err != nil && runCtx.Err() == nil {
-				c.emitState(model.AgentError, "agy exited: "+err.Error())
+				c.emitState(model.AgentError, "agy acp exited: "+err.Error())
 			} else {
 				c.emitState(model.AgentIdle, "Antigravity session ended")
 			}
 		}
 	}()
 
+	// Kick off ACP handshake: initialize (id=1), then session/new (id=2) on response
+	_ = c.writeRPC(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      c.nextRPCID.Add(1), // id 1 -> initialize
+		"method":  "initialize",
+		"params": map[string]any{
+			"protocolVersion":    1,
+			"clientCapabilities": map[string]any{},
+		},
+	})
+
 	return nil
 }
 
-// IsRunning reports whether an owned `agy` process is active.
+// IsRunning reports whether an owned `agy acp` process is active.
 func (c *Controller) IsRunning() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.running
 }
 
-// SendUtterances formats one or more finalized director utterances (with lookback frames
-// and interaction context) and writes a single NDJSON user turn to `agy` stdin.
+// SendUtterances formats director utterances and attaches Trigger/Reaction frames
+// directly as native ACP image blocks alongside the text prompt.
 func (c *Controller) SendUtterances(utterances []model.Utterance, target *model.CaptureTarget) error {
 	if len(utterances) == 0 {
 		return nil
 	}
 	prompt := FormatDirectorTurn(utterances, target)
-	return c.SendPrompt(prompt)
+	var frames []string
+	seen := map[string]bool{}
+	for _, u := range utterances {
+		for _, fp := range []string{u.TriggerFramePath, u.ReactionFramePath} {
+			if fp != "" && !seen[fp] {
+				seen[fp] = true
+				frames = append(frames, fp)
+			}
+		}
+	}
+	return c.SendPromptWithFrames(prompt, frames)
 }
 
-// SendPrompt writes a raw prompt string using agy's exact stream-json input schema:
-// {"event":"user","message":{"content":"..."}}
+// SendPrompt writes a text-only prompt turn to the active ACP session.
 func (c *Controller) SendPrompt(prompt string) error {
+	return c.SendPromptWithFrames(prompt, nil)
+}
+
+// SendPromptWithFrames sends a `session/prompt` JSON-RPC request (queuing cleanly if
+// ACP session initialization or an earlier turn is still in flight).
+func (c *Controller) SendPromptWithFrames(prompt string, framePaths []string) error {
 	c.mu.Lock()
-	stdin := c.stdin
-	running := c.running
+	if !c.running || c.stdin == nil {
+		c.mu.Unlock()
+		return fmt.Errorf("antigravity ACP session is not running")
+	}
+	if c.sessionID == "" || c.activePrompt != 0 {
+		c.queuedTurns = append(c.queuedTurns, queuedPrompt{text: prompt, framePaths: framePaths})
+		applog.Info("agy-acp", "queued turn (sessionID=%q activePrompt=%d queueLen=%d)", c.sessionID, c.activePrompt, len(c.queuedTurns))
+		c.mu.Unlock()
+		return nil
+	}
+	sessID := c.sessionID
+	reqID := c.nextRPCID.Add(1)
+	c.activePrompt = reqID
+	c.assembled.Reset()
 	c.mu.Unlock()
 
-	if !running || stdin == nil {
-		applog.Warn("agy", "SendPrompt called while session not running")
-		return fmt.Errorf("antigravity session is not running")
+	return c.dispatchACPPrompt(reqID, sessID, prompt, framePaths)
+}
+
+func (c *Controller) dispatchACPPrompt(reqID int64, sessID, prompt string, framePaths []string) error {
+	blocks := []map[string]any{
+		{"type": "text", "text": prompt},
+	}
+	// Attach up to 2 recent frames natively as base64 image blocks (ACP promptCapabilities.image=true!)
+	for i, fp := range framePaths {
+		if i >= 2 {
+			break
+		}
+		data, err := os.ReadFile(fp)
+		if err != nil || len(data) == 0 || len(data) > 4*1024*1024 {
+			continue
+		}
+		mime := "image/jpeg"
+		if strings.HasSuffix(strings.ToLower(fp), ".png") {
+			mime = "image/png"
+		}
+		blocks = append(blocks, map[string]any{
+			"type":     "image",
+			"data":     base64.StdEncoding.EncodeToString(data),
+			"mimeType": mime,
+		})
 	}
 
 	c.emitState(model.AgentThinking, "Antigravity analyzing director feedback...")
+	applog.Info("agy-acp", "sending session/prompt id=%d session=%s blocks=%d", reqID, sessID, len(blocks))
 
-	payload := map[string]any{
-		"event": "user",
-		"message": map[string]any{
-			"content": prompt,
+	return c.writeRPC(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      reqID,
+		"method":  "session/prompt",
+		"params": map[string]any{
+			"sessionId": sessID,
+			"prompt":    blocks,
 		},
-	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	applog.Info("agy", "sending user turn (%d bytes)", len(raw))
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.stdin == nil {
-		return fmt.Errorf("antigravity stdin closed")
-	}
-	_, err = c.stdin.Write(append(raw, '\n'))
-	if err != nil {
-		applog.Error("agy", "stdin write failed: %v", err)
-	}
-	return err
+	})
 }
 
-// ResolvePermission sends a voice or keyboard approve/deny decision back to `agy`.
-func (c *Controller) ResolvePermission(requestID string, decision ApprovalDecision) error {
+// ResolvePermission replies to a pending `session/request_permission` ACP request.
+// If optionID is empty, selects the best matching option for decision (allow_once vs reject_once).
+func (c *Controller) ResolvePermission(requestID string, optionID string, decision ApprovalDecision) error {
 	c.mu.Lock()
-	stdin := c.stdin
+	pending, ok := c.pendingPerms[requestID]
+	if ok {
+		delete(c.pendingPerms, requestID)
+	}
 	running := c.running
-	c.pendingPerm = nil
 	c.mu.Unlock()
 
-	if !running || stdin == nil {
-		return fmt.Errorf("antigravity session is not running")
+	if !running {
+		return fmt.Errorf("antigravity ACP session is not running")
+	}
+	if !ok {
+		applog.Warn("agy-acp", "ResolvePermission: unknown requestID=%s", requestID)
+		return nil
 	}
 
-	approved := decision == DecisionApprove
-	payload := map[string]any{
-		"event":      "permission_response",
-		"request_id": requestID,
-		"approved":   approved,
-		"decision":   string(decision),
+	chosen := optionID
+	if chosen == "" {
+		chosen = pickOptionID(pending.options, decision)
 	}
-	raw, err := json.Marshal(payload)
-	if err != nil {
+
+	applog.Info("agy-acp", "responding to session/request_permission id=%v optionId=%s decision=%s", pending.rpcID, chosen, decision)
+	var outcome map[string]any
+	if chosen != "" {
+		outcome = map[string]any{
+			"outcome":  "selected",
+			"optionId": chosen,
+		}
+	} else {
+		outcome = map[string]any{
+			"outcome": "cancelled",
+		}
+	}
+
+	if err := c.writeRPC(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      pending.rpcID,
+		"result": map[string]any{
+			"outcome": outcome,
+		},
+	}); err != nil {
 		return err
 	}
 
-	applog.Info("agy", "sending permission_response id=%s decision=%s", requestID, decision)
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.stdin == nil {
-		return fmt.Errorf("antigravity stdin closed")
-	}
-	if _, err := c.stdin.Write(append(raw, '\n')); err != nil {
-		return err
-	}
-	if approved {
+	if decision == DecisionApprove || strings.Contains(chosen, "allow") {
 		c.emitState(model.AgentWorking, "Permission approved — continuing...")
 	} else {
 		c.emitState(model.AgentListening, "Permission denied — listening")
@@ -280,7 +356,34 @@ func (c *Controller) ResolvePermission(requestID string, decision ApprovalDecisi
 	return nil
 }
 
-// Stop terminates the owned `agy` session immediately without blocking.
+func pickOptionID(opts []model.PermissionOption, decision ApprovalDecision) string {
+	if decision == DecisionApprove {
+		for _, o := range opts {
+			if o.Kind == "allow_once" {
+				return o.OptionID
+			}
+		}
+		for _, o := range opts {
+			if strings.HasPrefix(o.Kind, "allow") {
+				return o.OptionID
+			}
+		}
+	} else {
+		for _, o := range opts {
+			if o.Kind == "reject_once" {
+				return o.OptionID
+			}
+		}
+		for _, o := range opts {
+			if strings.HasPrefix(o.Kind, "reject") {
+				return o.OptionID
+			}
+		}
+	}
+	return ""
+}
+
+// Stop terminates the owned `agy acp` session cleanly without blocking.
 func (c *Controller) Stop() {
 	c.mu.Lock()
 	c.running = false
@@ -290,10 +393,13 @@ func (c *Controller) Stop() {
 	c.cancel = nil
 	cmd := c.cmd
 	c.cmd = nil
-	c.pendingPerm = nil
+	c.sessionID = ""
+	c.activePrompt = 0
+	c.queuedTurns = nil
+	c.pendingPerms = make(map[string]pendingACPPerm)
 	c.mu.Unlock()
 
-	applog.Info("agy", "stopping agy session")
+	applog.Info("agy-acp", "stopping agy acp session")
 	if stdin != nil {
 		_ = stdin.Close()
 	}
@@ -303,29 +409,40 @@ func (c *Controller) Stop() {
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
-
 	c.emitState(model.AgentIdle, "Session stopped")
+}
+
+func (c *Controller) writeRPC(obj map[string]any) error {
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stdin == nil {
+		return fmt.Errorf("agy acp stdin closed")
+	}
+	_, err = c.stdin.Write(append(raw, '\n'))
+	return err
 }
 
 func (c *Controller) readStdout(r io.Reader) {
 	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	var assembled strings.Builder
-
+	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
 		if len(line) > 300 {
-			applog.Info("agy-out", "%s…", line[:300])
+			applog.Info("agy-acp-out", "%s…", line[:300])
 		} else {
-			applog.Info("agy-out", "%s", line)
+			applog.Info("agy-acp-out", "%s", line)
 		}
-		c.handleStreamLine(line, &assembled)
+		c.handleACPLine(line)
 	}
 	if err := scanner.Err(); err != nil {
-		applog.Warn("agy-out", "stdout scanner ended: %v", err)
+		applog.Warn("agy-acp-out", "stdout scanner ended: %v", err)
 	}
 }
 
@@ -337,156 +454,253 @@ func (c *Controller) readStderr(r io.Reader) {
 		if line == "" {
 			continue
 		}
-		applog.Warn("agy-err", "%s", line)
-		if strings.HasPrefix(line, "error:") || strings.HasPrefix(line, "Failed to start:") || strings.HasPrefix(line, "Error:") {
-			if c.callbacks.OnError != nil {
-				c.callbacks.OnError(fmt.Errorf("%s", line))
-			}
-		}
+		applog.Warn("agy-acp-err", "%s", line)
 	}
 }
 
-func (c *Controller) handleStreamLine(line string, assembled *strings.Builder) {
+func (c *Controller) handleACPLine(line string) {
 	var msg map[string]any
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
 		return
 	}
 
-	if convID, ok := firstString(msg, "conversation_id", "session_id"); ok && convID != "" {
-		if c.callbacks.OnConversationID != nil {
-			c.callbacks.OnConversationID(convID)
+	method, _ := msg["method"].(string)
+	_, hasID := msg["id"]
+
+	// 1. Incoming JSON-RPC Request from Agent (e.g. session/request_permission!)
+	if method != "" && hasID {
+		if method == "session/request_permission" {
+			c.handlePermissionRequest(msg["id"], msg["params"])
 		}
+		return
 	}
 
-	evType, _ := firstString(msg, "event", "type")
-	switch evType {
-	case "init", "session_started":
-		c.emitState(model.AgentListening, "Antigravity ready — listening")
+	// 2. Incoming JSON-RPC Notification from Agent (session/update)
+	if method == "session/update" {
+		c.handleSessionUpdate(msg["params"])
+		return
+	}
 
-	case "step_update":
-		su, _ := msg["step_update"].(map[string]any)
-		if su == nil {
+	// 3. Incoming JSON-RPC Response to our Client Requests (initialize, session/new, session/prompt)
+	if hasID {
+		c.handleRPCResponse(msg)
+	}
+}
+
+func (c *Controller) handleRPCResponse(msg map[string]any) {
+	idFloat, _ := msg["id"].(float64)
+	id := int64(idFloat)
+
+	if errObj, ok := msg["error"].(map[string]any); ok && errObj != nil {
+		errMsg, _ := firstString(errObj, "message")
+		if errMsg == "" {
+			errMsg = "ACP error"
+		}
+		applog.Error("agy-acp", "RPC error for id=%d: %s", id, errMsg)
+		c.mu.Lock()
+		if id == c.activePrompt {
+			c.activePrompt = 0
+		}
+		c.mu.Unlock()
+		c.emitState(model.AgentError, errMsg)
+		if c.callbacks.OnError != nil {
+			c.callbacks.OnError(fmt.Errorf("%s", errMsg))
+		}
+		c.drainQueue()
+		return
+	}
+
+	result, _ := msg["result"].(map[string]any)
+	if result == nil {
+		return
+	}
+
+	// Response to `initialize` -> open or load session
+	if _, isInit := result["protocolVersion"]; isInit {
+		c.mu.Lock()
+		cwd := c.cfg.WorkspacePath
+		convID := c.cfg.ConversationID
+		c.mu.Unlock()
+
+		newID := c.nextRPCID.Add(1)
+		if convID != "" {
+			applog.Info("agy-acp", "initialize OK -> loading session %s (cwd=%s)", convID, cwd)
+			_ = c.writeRPC(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      newID,
+				"method":  "session/load",
+				"params": map[string]any{
+					"sessionId":  convID,
+					"cwd":        cwd,
+					"mcpServers": []any{},
+				},
+			})
+		} else {
+			applog.Info("agy-acp", "initialize OK -> creating session/new (cwd=%s)", cwd)
+			_ = c.writeRPC(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      newID,
+				"method":  "session/new",
+				"params": map[string]any{
+					"cwd":        cwd,
+					"mcpServers": []any{},
+				},
+			})
+		}
+		return
+	}
+
+	// Response to `session/new` or `session/load`
+	if sessID, ok := firstString(result, "sessionId"); ok && sessID != "" {
+		c.mu.Lock()
+		c.sessionID = sessID
+		c.mu.Unlock()
+		applog.Info("agy-acp", "ACP session ready: %s", sessID)
+		if c.callbacks.OnConversationID != nil {
+			c.callbacks.OnConversationID(sessID)
+		}
+		c.emitState(model.AgentListening, "Antigravity ACP ready — listening")
+		c.drainQueue()
+		return
+	}
+
+	// Response to `session/prompt` (turn complete!)
+	c.mu.Lock()
+	isPromptResp := id == c.activePrompt
+	var finalText string
+	if isPromptResp {
+		c.activePrompt = 0
+		finalText = strings.TrimSpace(c.assembled.String())
+		c.assembled.Reset()
+	}
+	c.mu.Unlock()
+
+	if isPromptResp {
+		if finalText != "" && c.callbacks.OnAssistantMessage != nil {
+			c.callbacks.OnAssistantMessage(finalText)
+		}
+		c.emitState(model.AgentListening, "Listening for director commentary")
+		c.drainQueue()
+	}
+}
+
+func (c *Controller) drainQueue() {
+	c.mu.Lock()
+	if !c.running || c.sessionID == "" || c.activePrompt != 0 || len(c.queuedTurns) == 0 {
+		c.mu.Unlock()
+		return
+	}
+	next := c.queuedTurns[0]
+	c.queuedTurns = c.queuedTurns[1:]
+	sessID := c.sessionID
+	reqID := c.nextRPCID.Add(1)
+	c.activePrompt = reqID
+	c.assembled.Reset()
+	c.mu.Unlock()
+
+	_ = c.dispatchACPPrompt(reqID, sessID, next.text, next.framePaths)
+}
+
+func (c *Controller) handleSessionUpdate(rawParams any) {
+	params, _ := rawParams.(map[string]any)
+	if params == nil {
+		return
+	}
+	upd, _ := params["update"].(map[string]any)
+	if upd == nil {
+		return
+	}
+
+	kind, _ := firstString(upd, "sessionUpdate")
+	switch kind {
+	case "agent_message_chunk":
+		content, _ := upd["content"].(map[string]any)
+		if content == nil {
 			return
 		}
-		if convID, ok := firstString(su, "conversation_id"); ok && convID != "" && c.callbacks.OnConversationID != nil {
-			c.callbacks.OnConversationID(convID)
-		}
-		stepType, _ := firstString(su, "step_type")
-		if delta, ok := firstString(su, "text_delta", "delta"); ok && delta != "" {
-			assembled.WriteString(delta)
-			c.emitState(model.AgentSpeaking, "Antigravity responding...")
-			if c.callbacks.OnTextDelta != nil {
-				c.callbacks.OnTextDelta(delta)
-			}
-		} else if stepType != "" && stepType != "user_input" && stepType != "agent_response" {
-			detail, _ := firstString(su, "state", "summary", "status")
-			c.emitState(model.AgentWorking, fmt.Sprintf("Working: %s", stepType))
-			if c.callbacks.OnToolCall != nil {
-				c.callbacks.OnToolCall(stepType, detail)
-			}
-		}
-
-	case "delta", "text_delta", "content_block_delta":
-		if text, ok := firstString(msg, "delta", "text", "content"); ok && text != "" {
-			assembled.WriteString(text)
+		if text, ok := firstString(content, "text"); ok && text != "" {
+			c.mu.Lock()
+			c.assembled.WriteString(text)
+			c.mu.Unlock()
 			c.emitState(model.AgentSpeaking, "Antigravity responding...")
 			if c.callbacks.OnTextDelta != nil {
 				c.callbacks.OnTextDelta(text)
 			}
 		}
 
-	case "tool_use", "tool_call":
-		toolName, _ := firstString(msg, "tool", "name", "tool_name")
-		detail, _ := firstString(msg, "summary", "status", "detail")
-		if toolName == "" {
-			toolName = "agent_step"
+	case "tool_call", "tool_call_update":
+		toolID, _ := firstString(upd, "toolCallId", "id")
+		title, _ := firstString(upd, "title", "kind")
+		status, _ := firstString(upd, "status")
+		if title == "" {
+			title = "tool_step"
 		}
-		c.emitState(model.AgentWorking, fmt.Sprintf("Working: %s", toolName))
+		c.emitState(model.AgentWorking, fmt.Sprintf("Working: %s", title))
 		if c.callbacks.OnToolCall != nil {
-			c.callbacks.OnToolCall(toolName, detail)
+			c.callbacks.OnToolCall(toolID, title, status)
 		}
+	}
+}
 
-	case "permission_request", "approval_required":
-		reqID, _ := firstString(msg, "request_id", "id")
-		if reqID == "" {
-			reqID = fmt.Sprintf("perm_%d", time.Now().UnixNano())
-		}
-		toolName, _ := firstString(msg, "tool_name", "tool", "name")
-		desc, _ := firstString(msg, "description", "message")
-		cmdStr, _ := firstString(msg, "command")
-		req := model.PermissionRequest{
-			ID:          reqID,
-			ToolName:    toolName,
-			Description: desc,
-			Command:     cmdStr,
-			RequestedAt: time.Now(),
-		}
-		c.mu.Lock()
-		c.pendingPerm = &req
-		c.mu.Unlock()
-		c.emitState(model.AgentAwaitingApproval, fmt.Sprintf("Approval needed: %s", toolName))
-		if c.callbacks.OnPermissionReq != nil {
-			c.callbacks.OnPermissionReq(req)
-		}
+func (c *Controller) handlePermissionRequest(rpcID any, rawParams any) {
+	params, _ := rawParams.(map[string]any)
+	if params == nil {
+		return
+	}
 
-	case "result":
-		res, _ := msg["result"].(map[string]any)
-		var finalText, errText, status string
-		if res != nil {
-			status, _ = firstString(res, "status")
-			finalText, _ = firstString(res, "response", "text", "content")
-			errText, _ = firstString(res, "error")
-			if convID, ok := firstString(res, "conversation_id"); ok && convID != "" && c.callbacks.OnConversationID != nil {
-				c.callbacks.OnConversationID(convID)
+	toolName := "Tool Action"
+	desc := "Antigravity is requesting permission to proceed."
+	cmdStr := ""
+
+	if tc, ok := params["toolCall"].(map[string]any); ok && tc != nil {
+		if t, ok := firstString(tc, "title", "kind"); ok {
+			toolName = t
+		}
+		if ri, ok := tc["rawInput"].(map[string]any); ok && ri != nil {
+			if cmd, ok := firstString(ri, "CommandLine", "command", "Path", "path"); ok {
+				cmdStr = cmd
 			}
-		} else {
-			finalText, _ = firstString(msg, "result", "response", "text", "content")
-			errText, _ = firstString(msg, "error")
 		}
-		if strings.EqualFold(status, "ERROR") || errText != "" {
-			assembled.Reset()
-			if errText == "" {
-				errText = "Antigravity returned an error"
-			}
-			applog.Error("agy", "turn error: %s", errText)
-			c.emitState(model.AgentError, errText)
-			if c.callbacks.OnError != nil {
-				c.callbacks.OnError(fmt.Errorf("%s", errText))
-			}
-			return
-		}
-		if strings.TrimSpace(finalText) == "" {
-			finalText = strings.TrimSpace(assembled.String())
-		} else {
-			finalText = strings.TrimSpace(finalText)
-		}
-		assembled.Reset()
-		if finalText != "" && c.callbacks.OnAssistantMessage != nil {
-			c.callbacks.OnAssistantMessage(finalText)
-		}
-		c.emitState(model.AgentListening, "Listening for director commentary")
+	}
 
-	case "assistant", "turn_complete", "done":
-		text, _ := firstString(msg, "result", "text", "content", "message")
-		if text == "" {
-			text = strings.TrimSpace(assembled.String())
+	var opts []model.PermissionOption
+	if rawOpts, ok := params["options"].([]any); ok {
+		for _, item := range rawOpts {
+			m, _ := item.(map[string]any)
+			if m == nil {
+				continue
+			}
+			optID, _ := firstString(m, "optionId")
+			name, _ := firstString(m, "name")
+			kind, _ := firstString(m, "kind")
+			if optID != "" {
+				opts = append(opts, model.PermissionOption{
+					OptionID: optID,
+					Name:     name,
+					Kind:     kind,
+				})
+			}
 		}
-		assembled.Reset()
-		if text != "" && c.callbacks.OnAssistantMessage != nil {
-			c.callbacks.OnAssistantMessage(text)
-		}
-		c.emitState(model.AgentListening, "Listening for director commentary")
+	}
 
-	case "error":
-		errMsg, _ := firstString(msg, "error", "message")
-		if errMsg == "" {
-			errMsg = "unknown antigravity error"
-		}
-		applog.Error("agy", "stream error: %s", errMsg)
-		c.emitState(model.AgentError, errMsg)
-		if c.callbacks.OnError != nil {
-			c.callbacks.OnError(fmt.Errorf("%s", errMsg))
-		}
+	reqID := fmt.Sprintf("acp_%v", rpcID)
+	req := model.PermissionRequest{
+		ID:          reqID,
+		ToolName:    toolName,
+		Description: desc,
+		Command:     cmdStr,
+		Options:     opts,
+		RequestedAt: time.Now(),
+	}
+
+	c.mu.Lock()
+	c.pendingPerms[reqID] = pendingACPPerm{rpcID: rpcID, options: opts}
+	c.mu.Unlock()
+
+	applog.Info("agy-acp", "received session/request_permission id=%s tool=%s cmd=%q options=%d", reqID, toolName, cmdStr, len(opts))
+	c.emitState(model.AgentAwaitingApproval, fmt.Sprintf("Approval needed: %s", toolName))
+	if c.callbacks.OnPermissionReq != nil {
+		c.callbacks.OnPermissionReq(req)
 	}
 }
 
@@ -508,12 +722,11 @@ func firstString(m map[string]any, keys ...string) (string, bool) {
 }
 
 // FormatDirectorTurn builds a concise, structured multimodal prompt for Google Antigravity
-// combining the director's spoken commentary, dynamic lookback timecodes, triggering OS actions,
-// and local Trigger/Reaction frame paths.
+// combining the director's spoken commentary, dynamic lookback timecodes, and triggering OS actions.
 func FormatDirectorTurn(utterances []model.Utterance, target *model.CaptureTarget) string {
 	var b strings.Builder
-	b.WriteString("[XNK ITERATE LIVE DIRECTOR FEEDBACK — VOICE + VISION MODE]\n")
-	b.WriteString("Respond concisely and clearly. Inspect the attached frame paths via view_file/read_file if helpful.\n")
+	b.WriteString("[XNK ITERATE LIVE DIRECTOR FEEDBACK]\n")
+	b.WriteString("Respond concisely. Trigger/Reaction screen frames are attached when available.\n")
 	if target != nil {
 		b.WriteString(fmt.Sprintf("Target: %s (%s, %dx%d)\n", target.Title, target.Type, target.Resolution.Width, target.Resolution.Height))
 	}
@@ -529,13 +742,10 @@ func FormatDirectorTurn(utterances []model.Utterance, target *model.CaptureTarge
 			b.WriteString("\n")
 		}
 		if u.TriggerFramePath != "" {
-			b.WriteString(fmt.Sprintf("Trigger Frame: %s\n", u.TriggerFramePath))
+			b.WriteString(fmt.Sprintf("Trigger Frame Path: %s\n", u.TriggerFramePath))
 		}
 		if u.ReactionFramePath != "" {
-			b.WriteString(fmt.Sprintf("Reaction Frame: %s\n", u.ReactionFramePath))
-		}
-		for idx, cp := range u.CarouselPaths {
-			b.WriteString(fmt.Sprintf("Carousel Frame %d: %s\n", idx+1, cp))
+			b.WriteString(fmt.Sprintf("Reaction Frame Path: %s\n", u.ReactionFramePath))
 		}
 	}
 	return b.String()
