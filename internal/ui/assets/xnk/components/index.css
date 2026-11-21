@@ -1,0 +1,13 @@
+/**
+ * xnk Design System — Modular Component Bundle (v2.0)
+ * Import individual component stylesheets or this barrel file.
+ */
+
+@import "./buttons.css";
+@import "./navigation.css";
+@import "./forms.css";
+@import "./modals.css";
+@import "./feedback.css";
+@import "./data-display.css";
+@import "./chassis.css";
+@import "./chat.css";

@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>XNK Iterate — Voice + Vision Antigravity Director</title>
+  <link rel="stylesheet" href="/xnk/xnk.css" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="xnk-root" data-theme="xnk">
+
+  <!-- ==================== COMPACT FLOATING HUD VIEW ==================== -->
+  <div id="hud-shell" class="hud-shell hidden">
+    <div class="hud-bar xnk-chassis">
+      <span class="xnk-chassis-corner tl"></span>
+      <span class="xnk-chassis-corner tr"></span>
+      <span class="xnk-chassis-corner bl"></span>
+      <span class="xnk-chassis-corner br"></span>
+
+      <div class="hud-segment hud-rec">
+        <span id="hud-rec-dot" class="rec-dot"></span>
+        <span id="hud-rec-label" class="hud-mono">STANDBY</span>
+        <span id="hud-timer" class="hud-timer">00:00</span>
+      </div>
+
+      <div class="hud-divider"></div>
+
+      <div class="hud-segment hud-wave">
+        <canvas id="hud-waveform" width="76" height="22"></canvas>
+      </div>
+
+      <div class="hud-divider"></div>
+
+      <div class="hud-segment hud-transcript-wrap">
+        <span id="hud-batch-pill" class="xnk-badge xnk-badge-amber xnk-badge-pill hidden">BATCH 0</span>
+        <span id="hud-transcript" class="hud-transcript">Listening for director commentary…</span>
+      </div>
+
+      <div class="hud-divider"></div>
+
+      <div class="hud-segment hud-agy-pill">
+        <span class="xnk-orb-avatar"></span>
+        <span id="hud-agy-status" class="hud-agy-text">AGY: Ready</span>
+      </div>
+
+      <div class="hud-controls">
+        <button id="hud-batch-btn" class="xnk-btn xnk-btn-secondary xnk-btn-sm" title="Hold / Batch Thought (⌥B)">Batch</button>
+        <button id="hud-pause-btn" class="xnk-btn xnk-btn-secondary xnk-btn-sm" title="Pause / Resume (Space)">⏸</button>
+        <button id="hud-stop-btn" class="xnk-btn xnk-btn-danger xnk-btn-sm" title="Stop &amp; Export (Esc)">⏹</button>
+        <button id="hud-expand-btn" class="xnk-btn xnk-btn-secondary xnk-btn-sm" title="Expand to Studio">⤢</button>
+      </div>
+    </div>
+
+    <!-- Inline Voice Permission Approval Strip in Compact HUD -->
+    <div id="hud-approval-strip" class="hud-approval xnk-callout xnk-callout-warning hidden">
+      <div class="hud-approval-row">
+        <div>
+          <span class="xnk-callout-title">⚡ Permission Requested</span>
+          <span id="hud-approval-text" class="hud-approval-cmd"></span>
+        </div>
+        <div class="hud-approval-actions">
+          <span class="hud-hint">Say “Approve” or “Deny”</span>
+          <button id="hud-approve-btn" class="xnk-btn xnk-btn-cobalt xnk-btn-sm">Approve <span class="xnk-kbd">⌘Y</span></button>
+          <button id="hud-deny-btn" class="xnk-btn xnk-btn-danger xnk-btn-sm">Deny <span class="xnk-kbd">⌘N</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== FULL DIRECTOR STUDIO VIEW ==================== -->
+  <div id="studio-shell" class="studio-shell">
+    <!-- Top Architectural Header & Telemetry Strip -->
+    <header class="studio-header">
+      <div class="brand-lockup">
+        <span class="brand-mark">XNK</span>
+        <div class="brand-copy">
+          <span class="brand-title">XNK ITERATE</span>
+          <span class="brand-sub">Voice + Vision Google Antigravity Director</span>
+        </div>
+      </div>
+
+      <div class="header-telemetry xnk-telemetry-strip">
+        <span class="xnk-telemetry-tag">
+          <span class="xnk-telemetry-key">STATE</span>
+          <span id="top-state-badge" class="xnk-badge xnk-badge-pill">STANDBY</span>
+        </span>
+        <span class="xnk-telemetry-tag">
+          <span class="xnk-telemetry-key">TIME</span>
+          <span id="top-timer" class="xnk-telemetry-val">00:00</span>
+        </span>
+        <span class="xnk-telemetry-tag">
+          <span class="xnk-telemetry-key">AGY</span>
+          <span id="top-agy-badge" class="xnk-badge xnk-badge-cyan xnk-badge-pill">IDLE</span>
+        </span>
+        <span class="xnk-telemetry-tag">
+          <span class="xnk-telemetry-key">OS</span>
+          <span id="top-platform" class="xnk-telemetry-val">—</span>
+        </span>
+      </div>
+
+      <div class="header-actions">
+        <button id="btn-mute-voice" class="xnk-btn xnk-btn-secondary xnk-btn-sm" title="Toggle Antigravity Spoken Voice">🔊 Voice On</button>
+        <button id="btn-compact-hud" class="xnk-btn xnk-btn-secondary xnk-btn-sm" title="Switch to Compact Floating HUD">◱ Floating HUD</button>
+      </div>
+    </header>
+
+    <!-- Main 2-Column Studio Grid -->
+    <main class="studio-grid">
+
+      <!-- LEFT COLUMN: Capture Deck, Target Picker & Voice Controls -->
+      <section class="deck-column">
+        <div class="xnk-chassis deck-card">
+          <span class="xnk-chassis-corner tl"></span>
+          <span class="xnk-chassis-corner tr"></span>
+          <span class="xnk-chassis-corner bl"></span>
+          <span class="xnk-chassis-corner br"></span>
+
+          <div class="section-head">
+            <h2 class="section-title">Capture Deck</h2>
+            <div class="perm-pills" id="perm-pills"></div>
+          </div>
+
+          <!-- Live Screen Preview Viewport -->
+          <div class="preview-stage">
+            <img id="live-preview-img" class="preview-img hidden" alt="Live screen preview" />
+            <div id="preview-placeholder" class="preview-placeholder">
+              <div class="preview-reticle"></div>
+              <span class="preview-hint">Select a display or window below and start a live director session</span>
+            </div>
+            <div class="preview-overlay-top">
+              <span id="preview-rec-pill" class="xnk-badge xnk-badge-pill hidden">● REC</span>
+              <span id="preview-target-pill" class="xnk-badge">No target selected</span>
+            </div>
+          </div>
+
+          <!-- Target Picker + Workspace Controls -->
+          <div class="config-grid">
+            <div class="field-group">
+              <div class="field-label-row">
+                <label class="field-label" for="target-select">Capture Target (Display / Window)</label>
+                <button id="btn-refresh-targets" class="link-btn" type="button">↻ Refresh</button>
+              </div>
+              <select id="target-select" class="xnk-select"></select>
+            </div>
+
+            <div class="field-group">
+              <label class="field-label" for="workspace-input">Antigravity Workspace Directory</label>
+              <input id="workspace-input" class="xnk-input" type="text" placeholder="/path/to/your/project" />
+            </div>
+
+            <div class="field-row-2">
+              <div class="field-group">
+                <label class="field-label" for="conv-id-input">Conversation ID (Optional)</label>
+                <input id="conv-id-input" class="xnk-input" type="text" placeholder="Auto or resume ID" />
+              </div>
+              <div class="field-group checkbox-align">
+                <label class="toggle-label">
+                  <input id="continue-checkbox" type="checkbox" checked />
+                  <span>Resume latest thread (<code>--continue</code>)</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Voice & Waveform Telemetry Bar -->
+          <div class="voice-meter-box">
+            <div class="voice-meter-top">
+              <span class="field-label">Live Voice + AEC Barge-In</span>
+              <div class="voice-badges">
+                <span id="batch-status-badge" class="xnk-badge xnk-badge-pill">AUTO-STREAM</span>
+                <button id="btn-web-mic" class="link-btn" type="button" title="Fallback Browser Speech Recognition">🎙 Browser STT</button>
+              </div>
+            </div>
+            <div class="waveform-row">
+              <canvas id="studio-waveform" width="320" height="36"></canvas>
+              <div id="live-transcript-box" class="live-transcript-box">Listening for director commentary…</div>
+            </div>
+          </div>
+
+          <!-- Primary Transport Controls -->
+          <div class="transport-bar">
+            <button id="btn-start" class="xnk-btn xnk-btn-cobalt transport-primary">
+              ⏺ Start Director Session
+            </button>
+            <button id="btn-stop" class="xnk-btn xnk-btn-danger transport-primary hidden">
+              ⏹ Stop &amp; Export Bundle
+            </button>
+            <button id="btn-pause" class="xnk-btn xnk-btn-secondary" disabled>
+              ⏸ Pause <span class="xnk-kbd">Space</span>
+            </button>
+            <button id="btn-batch" class="xnk-btn xnk-btn-secondary" title="Hold &amp; Batch multiple sentences before sending">
+              📦 Batch <span class="xnk-kbd">⌥B</span>
+            </button>
+            <button id="btn-flush-batch" class="xnk-btn xnk-btn-cobalt hidden">
+              Send Batch
+            </button>
+            <button id="btn-discard" class="xnk-btn xnk-btn-secondary" title="Discard last utterance">
+              🗑 Discard
+            </button>
+          </div>
+
+          <div id="last-bundle-banner" class="xnk-alert xnk-alert-success hidden">
+            <span id="last-bundle-text"></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT COLUMN: Embedded Google Antigravity Conversation + Lookback Timeline -->
+      <section class="agent-column">
+        <div class="xnk-chassis agent-card">
+          <span class="xnk-chassis-corner tl"></span>
+          <span class="xnk-chassis-corner tr"></span>
+          <span class="xnk-chassis-corner bl"></span>
+          <span class="xnk-chassis-corner br"></span>
+
+          <div class="section-head">
+            <div class="agent-head-left">
+              <span class="xnk-orb-avatar"></span>
+              <div>
+                <h2 class="section-title">Google Antigravity Live Session</h2>
+                <div id="agent-status-sub" class="agent-status-sub">Ready to start live director session</div>
+              </div>
+            </div>
+            <div class="tab-switch">
+              <button id="tab-chat" class="tab-btn is-active" type="button">Live Feed</button>
+              <button id="tab-timeline" class="tab-btn" type="button">Utterances (<span id="utt-count">0</span>)</button>
+            </div>
+          </div>
+
+          <!-- Voice Permission Approval Callout -->
+          <div id="studio-approval-box" class="xnk-callout xnk-callout-warning hidden">
+            <div class="xnk-callout-title">⚡ Antigravity Permission Request — Say “Approve” or “Deny”</div>
+            <p id="studio-approval-desc" class="xnk-callout-body"></p>
+            <div class="approval-actions">
+              <button id="studio-approve-btn" class="xnk-btn xnk-btn-cobalt xnk-btn-sm">✓ Approve <span class="xnk-kbd">⌘Y</span></button>
+              <button id="studio-deny-btn" class="xnk-btn xnk-btn-danger xnk-btn-sm">✕ Deny <span class="xnk-kbd">⌘N</span></button>
+            </div>
+          </div>
+
+          <!-- TAB 1: Live Conversation Stream -->
+          <div id="panel-chat" class="panel-scroll">
+            <div id="chat-stream" class="xnk-chat-stream">
+              <div class="xnk-empty-state">
+                <strong>No live turns yet.</strong><br />
+                Start a Director Session and speak naturally — or type below to inject a director comment with Trigger &amp; Reaction frames.
+              </div>
+            </div>
+            <div id="thinking-indicator" class="xnk-chat-msg is-ai is-thinking hidden">
+              <div class="xnk-chat-msg-header">
+                <span class="xnk-chat-msg-role"><span class="xnk-orb-avatar"></span> Antigravity</span>
+              </div>
+              <div class="xnk-thinking-dots"><span></span><span></span><span></span></div>
+            </div>
+          </div>
+
+          <!-- TAB 2: Utterance & Dynamic Lookback Timeline -->
+          <div id="panel-timeline" class="panel-scroll hidden">
+            <div id="utterance-list" class="utterance-list">
+              <div class="xnk-empty-state">No director utterances recorded yet.</div>
+            </div>
+          </div>
+
+          <!-- Direct Director Commentary Input Bar -->
+          <form id="manual-form" class="manual-bar">
+            <input id="manual-input" class="xnk-input" type="text" placeholder="Type director commentary (or speak aloud while recording)…" autocomplete="off" />
+            <button type="submit" class="xnk-btn xnk-btn-cobalt">Send Turn</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Lightbox Modal for Inspecting Trigger / Reaction Frames -->
+  <div id="frame-modal" class="frame-modal hidden">
+    <div class="frame-modal-card xnk-chassis">
+      <div class="frame-modal-head">
+        <span id="frame-modal-title" class="hud-mono">Frame Snapshot</span>
+        <button id="frame-modal-close" class="xnk-btn xnk-btn-secondary xnk-btn-sm">✕ Close</button>
+      </div>
+      <img id="frame-modal-img" class="frame-modal-img" alt="Snapshot inspection" />
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

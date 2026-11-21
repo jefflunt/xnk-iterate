@@ -1,0 +1,271 @@
+/**
+ * xnk Design System — Badges, Banners, Callouts, Steppers & Empty States
+ */
+
+/* Badges & Telemetry Labels */
+.xnk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-xs);
+  letter-spacing: var(--xnk-tracking-wide);
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--xnk-radius-xs);
+  border: 1px solid var(--xnk-border-hairline);
+  background: var(--xnk-surface-2);
+  color: var(--xnk-text-secondary);
+  white-space: nowrap;
+}
+
+.xnk-badge-pill {
+  border-radius: var(--xnk-radius-full);
+  padding: 0.2rem 0.65rem;
+  text-transform: uppercase;
+  font-size: var(--xnk-text-2xs);
+}
+
+.xnk-badge-live {
+  border-color: var(--xnk-accent-emerald-border);
+  background: var(--xnk-accent-emerald-tint);
+  color: var(--xnk-accent-emerald);
+}
+
+.xnk-badge-live::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--xnk-accent-emerald);
+  box-shadow: 0 0 8px var(--xnk-accent-emerald);
+}
+
+.xnk-badge-cobalt {
+  border-color: var(--xnk-accent-cobalt-border);
+  background: var(--xnk-accent-cobalt-tint);
+  color: var(--xnk-accent-cobalt-hover);
+}
+
+.xnk-badge-cyan {
+  border-color: var(--xnk-accent-cyan-border);
+  background: var(--xnk-accent-cyan-tint);
+  color: var(--xnk-accent-cyan);
+}
+
+.xnk-badge-amber {
+  border-color: var(--xnk-accent-amber-border);
+  background: var(--xnk-accent-amber-tint);
+  color: var(--xnk-accent-amber-hover);
+}
+
+.xnk-badge-crimson {
+  border-color: var(--xnk-accent-crimson-border);
+  background: var(--xnk-accent-crimson-tint);
+  color: var(--xnk-accent-crimson-hover);
+}
+
+/* Keyboard Shortcut Chip */
+.xnk-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-2xs);
+  color: var(--xnk-text-primary);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--xnk-border-strong);
+  border-radius: var(--xnk-radius-xs);
+  padding: 0.12rem 0.42rem;
+  line-height: 1.2;
+}
+
+/* Flash / Alert Banners */
+.xnk-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--xnk-space-3);
+  padding: 0.85rem 1.2rem;
+  border-radius: var(--xnk-radius-md);
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-sm);
+  border: 1px solid var(--xnk-border-hairline);
+  background: var(--xnk-surface-2);
+  color: var(--xnk-text-primary);
+  animation: xnk-fade-in 0.25s ease-out;
+}
+
+.xnk-alert-pill {
+  border-radius: var(--xnk-radius-full);
+  padding: 0.6rem 1.25rem;
+  backdrop-filter: var(--xnk-blur-chrome);
+  -webkit-backdrop-filter: var(--xnk-blur-chrome);
+  box-shadow: var(--xnk-shadow-chrome);
+}
+
+.xnk-alert-success {
+  background: var(--xnk-accent-emerald-tint);
+  border-color: var(--xnk-accent-emerald-border);
+  color: var(--xnk-accent-emerald);
+}
+
+.xnk-alert-info {
+  background: var(--xnk-accent-cyan-tint);
+  border-color: var(--xnk-accent-cyan-border);
+  color: var(--xnk-accent-cyan);
+}
+
+.xnk-alert-warning {
+  background: var(--xnk-accent-amber-tint);
+  border-color: var(--xnk-accent-amber-border);
+  color: var(--xnk-accent-amber-hover);
+}
+
+.xnk-alert-error {
+  background: var(--xnk-accent-crimson-tint);
+  border-color: var(--xnk-accent-crimson-border);
+  color: var(--xnk-accent-crimson-hover);
+}
+
+/* Structured Callout Box */
+.xnk-callout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--xnk-space-2);
+  padding: var(--xnk-space-4) var(--xnk-space-5);
+  border-radius: var(--xnk-radius-md);
+  background: var(--xnk-surface-2);
+  border: 1px solid var(--xnk-border-hairline);
+}
+
+.xnk-callout-warning {
+  background: rgba(245, 158, 11, 0.06);
+  border-color: var(--xnk-accent-amber-border);
+}
+
+.xnk-callout-success {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: var(--xnk-accent-emerald-border);
+}
+
+.xnk-callout-title {
+  display: flex;
+  align-items: center;
+  gap: var(--xnk-space-2);
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-xs);
+  font-weight: var(--xnk-weight-semibold);
+  letter-spacing: var(--xnk-tracking-wide);
+  text-transform: uppercase;
+  color: var(--xnk-text-high-contrast);
+}
+
+.xnk-callout-warning .xnk-callout-title {
+  color: var(--xnk-accent-amber-hover);
+}
+
+.xnk-callout-success .xnk-callout-title {
+  color: var(--xnk-accent-emerald);
+}
+
+.xnk-callout-body {
+  margin: 0;
+  font-size: var(--xnk-text-sm);
+  color: var(--xnk-text-secondary);
+  line-height: var(--xnk-leading-normal);
+}
+
+/* Floating Dismissible Announcement / Install Banner */
+.xnk-floating-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--xnk-space-4);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.6rem 1.2rem;
+  background: var(--xnk-glass-chrome);
+  backdrop-filter: var(--xnk-blur-chrome);
+  -webkit-backdrop-filter: var(--xnk-blur-chrome);
+  border: 1px solid var(--xnk-accent-cyan-border);
+  border-radius: var(--xnk-radius-full);
+  box-shadow: var(--xnk-shadow-chrome), 0 0 20px var(--xnk-accent-cyan-glow);
+}
+
+@media (max-width: 640px) {
+  .xnk-floating-banner {
+    border-radius: var(--xnk-radius-md);
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* Multi-Step Progress Stepper */
+.xnk-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--xnk-space-3);
+  flex-wrap: wrap;
+}
+
+.xnk-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-xs);
+  color: var(--xnk-text-muted);
+}
+
+.xnk-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--xnk-radius-full);
+  border: 1px solid currentColor;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--xnk-text-2xs);
+}
+
+.xnk-step.is-active {
+  color: var(--xnk-accent-primary-hover);
+  font-weight: var(--xnk-weight-semibold);
+}
+
+.xnk-step.is-active .xnk-step-num {
+  background: var(--xnk-accent-primary-tint);
+  border-color: var(--xnk-accent-primary-hover);
+}
+
+.xnk-step.is-completed {
+  color: var(--xnk-accent-emerald);
+}
+
+.xnk-step.is-completed .xnk-step-num {
+  background: var(--xnk-accent-emerald-tint);
+  border-color: var(--xnk-accent-emerald);
+}
+
+.xnk-step-connector {
+  width: 28px;
+  height: 1px;
+  background: var(--xnk-border-hairline);
+}
+
+.xnk-step-connector.is-completed {
+  background: var(--xnk-accent-emerald);
+}
+
+/* Empty State Container */
+.xnk-empty-state {
+  background: rgba(12, 12, 14, 0.55);
+  border: 1px dashed var(--xnk-border-strong);
+  border-radius: var(--xnk-radius-md);
+  padding: var(--xnk-space-10) var(--xnk-space-6);
+  text-align: center;
+  color: var(--xnk-text-secondary);
+  font-size: var(--xnk-text-sm);
+}

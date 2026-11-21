@@ -1,0 +1,62 @@
+/**
+ * xnk Design System - Surfaces, Radii, Spacing, Shadows & Motion (v2.0)
+ * Prefix: --xnk-
+ */
+
+:root {
+  /* Border Radii */
+  --xnk-radius-none: 0px;
+  --xnk-radius-xs: 4px;      /* Micro badges, tags, mono keycaps */
+  --xnk-radius-sm: 6px;      /* Buttons, inputs, small pills */
+  --xnk-radius-md: 10px;     /* Standard cards, dialogs, media containers */
+  --xnk-radius-lg: 16px;     /* Outer panels, modals, feature containers */
+  --xnk-radius-xl: 20px;     /* Full-viewport takeover sheets */
+  --xnk-radius-full: 9999px; /* Pill navbars, status pills, toggles, avatars */
+
+  /* Container Widths */
+  --xnk-container-sm: 640px;
+  --xnk-container-md: 880px;
+  --xnk-container-lg: 1140px;
+  --xnk-container-xl: 1400px;
+
+  /* Spacing Scale (8pt Grid with 4pt Micro-steps) */
+  --xnk-space-1: 0.25rem;  /* 4px */
+  --xnk-space-2: 0.5rem;   /* 8px */
+  --xnk-space-3: 0.75rem;  /* 12px */
+  --xnk-space-4: 1rem;     /* 16px */
+  --xnk-space-5: 1.25rem;  /* 20px */
+  --xnk-space-6: 1.5rem;   /* 24px */
+  --xnk-space-8: 2rem;     /* 32px */
+  --xnk-space-10: 2.5rem;  /* 40px */
+  --xnk-space-12: 3rem;    /* 48px */
+  --xnk-space-16: 4rem;    /* 64px */
+  --xnk-space-24: 6rem;    /* 96px */
+
+  /* Shadows (Restrained Ambient Depth) */
+  --xnk-shadow-ambient: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --xnk-shadow-card: 0 4px 20px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--xnk-border-subtle);
+  --xnk-shadow-chrome: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --xnk-shadow-float: 0 12px 40px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--xnk-border-hairline);
+  --xnk-shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.85), 0 0 32px rgba(56, 189, 248, 0.06);
+  --xnk-shadow-glow-cobalt: 0 0 24px rgba(46, 82, 232, 0.32);
+  --xnk-shadow-glow-primary: var(--xnk-shadow-glow-cobalt);
+  --xnk-shadow-glow-cyan: 0 0 24px rgba(56, 189, 248, 0.24);
+  --xnk-shadow-glow-emerald: 0 0 24px rgba(16, 185, 129, 0.24);
+  --xnk-shadow-glow-amber: 0 0 24px rgba(245, 158, 11, 0.24);
+  --xnk-shadow-glow-ember: 0 0 24px rgba(255, 119, 34, 0.22);
+
+  /* Z-Index Scale */
+  --xnk-z-base: 1;
+  --xnk-z-header: 100;
+  --xnk-z-banner: 150;
+  --xnk-z-modal: 300;
+  --xnk-z-popover: 500;
+  --xnk-z-takeover: 900;
+
+  /* Motion & Transitions */
+  --xnk-ease-standard: cubic-bezier(0.16, 1, 0.3, 1);
+  --xnk-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --xnk-duration-fast: 120ms;
+  --xnk-duration-base: 200ms;
+  --xnk-duration-slow: 350ms;
+}

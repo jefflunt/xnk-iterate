@@ -1,0 +1,182 @@
+/**
+ * xnk Design System - Tokens & Base Foundation (v2.0)
+ * Import this file if you want tokens, typography helpers, scrollbars, and
+ * accessibility defaults without the full component library.
+ * For the full system (tokens + all UI components), import ../xnk.css.
+ */
+
+@import "./colors.css";
+@import "./typography.css";
+@import "./surfaces.css";
+
+/* Base Body Application */
+.xnk-root,
+[data-theme="xnk"] {
+  background-color: var(--xnk-bg-void);
+  color: var(--xnk-text-primary);
+  font-family: var(--xnk-font-sans);
+  font-size: var(--xnk-text-base);
+  line-height: var(--xnk-leading-normal);
+  letter-spacing: var(--xnk-tracking-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Container Utility */
+.xnk-container {
+  width: 100%;
+  max-width: var(--xnk-container-lg);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--xnk-space-6);
+  padding-right: var(--xnk-space-6);
+  box-sizing: border-box;
+}
+
+/* Accessibility Skip Link */
+.xnk-skip-link {
+  position: absolute;
+  top: -48px;
+  left: var(--xnk-space-4);
+  background: var(--xnk-text-high-contrast);
+  color: var(--xnk-text-inverse);
+  padding: var(--xnk-space-2) var(--xnk-space-4);
+  border-radius: var(--xnk-radius-xs);
+  font-weight: var(--xnk-weight-semibold);
+  font-size: var(--xnk-text-sm);
+  text-decoration: none;
+  z-index: var(--xnk-z-takeover);
+  transition: top var(--xnk-duration-base) var(--xnk-ease-standard);
+}
+
+.xnk-skip-link:focus {
+  top: var(--xnk-space-4);
+}
+
+/* Custom Thin Dark Scrollbars */
+.xnk-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+.xnk-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.xnk-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.xnk-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+}
+
+.xnk-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Glass Panel Primitives */
+.xnk-glass-panel {
+  background: var(--xnk-glass-subtle);
+  backdrop-filter: var(--xnk-blur-subtle);
+  -webkit-backdrop-filter: var(--xnk-blur-subtle);
+  border: 1px solid var(--xnk-border-hairline);
+}
+
+.xnk-glass-chrome {
+  background: var(--xnk-glass-chrome);
+  backdrop-filter: var(--xnk-blur-chrome);
+  -webkit-backdrop-filter: var(--xnk-blur-chrome);
+  border: 1px solid var(--xnk-border-hairline);
+  box-shadow: var(--xnk-shadow-chrome);
+}
+
+.xnk-glass-modal {
+  background: var(--xnk-glass-modal);
+  backdrop-filter: var(--xnk-blur-modal);
+  -webkit-backdrop-filter: var(--xnk-blur-modal);
+  border: 1px solid var(--xnk-border-strong);
+  box-shadow: var(--xnk-shadow-modal);
+}
+
+/* Typography Utility Classes */
+.xnk-display {
+  font-family: var(--xnk-font-sans);
+  font-size: var(--xnk-text-hero);
+  font-weight: var(--xnk-weight-bold);
+  letter-spacing: var(--xnk-tracking-tightest);
+  line-height: var(--xnk-leading-tight);
+  color: var(--xnk-text-high-contrast);
+}
+
+.xnk-heading-1 {
+  font-family: var(--xnk-font-sans);
+  font-size: var(--xnk-text-3xl);
+  font-weight: var(--xnk-weight-bold);
+  letter-spacing: var(--xnk-tracking-tight);
+  line-height: var(--xnk-leading-snug);
+  color: var(--xnk-text-high-contrast);
+}
+
+.xnk-heading-2 {
+  font-family: var(--xnk-font-sans);
+  font-size: var(--xnk-text-xl);
+  font-weight: var(--xnk-weight-semibold);
+  letter-spacing: var(--xnk-tracking-tight);
+  line-height: var(--xnk-leading-snug);
+  color: var(--xnk-text-high-contrast);
+}
+
+.xnk-heading-3 {
+  font-family: var(--xnk-font-sans);
+  font-size: var(--xnk-text-lg);
+  font-weight: var(--xnk-weight-semibold);
+  letter-spacing: var(--xnk-tracking-tight);
+  line-height: var(--xnk-leading-snug);
+  color: var(--xnk-text-high-contrast);
+}
+
+.xnk-eyebrow {
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-xs);
+  font-weight: var(--xnk-weight-medium);
+  letter-spacing: var(--xnk-tracking-widest);
+  text-transform: uppercase;
+  color: var(--xnk-text-muted);
+}
+
+.xnk-mono-data {
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-sm);
+  letter-spacing: var(--xnk-tracking-wide);
+  font-variant-numeric: tabular-nums;
+  color: var(--xnk-text-secondary);
+}
+
+/* Keyframes (Shared across components) */
+@keyframes xnk-pulse-glow {
+  0%, 100% { transform: scale(0.95); opacity: 0.72; }
+  50% { transform: scale(1.22); opacity: 1; }
+}
+
+@keyframes xnk-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes xnk-backlight-breathe {
+  0% { opacity: 0.35; transform: scale(0.9); }
+  100% { opacity: 0.85; transform: scale(1.15); }
+}
+
+/* Reduced-Motion Safety */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

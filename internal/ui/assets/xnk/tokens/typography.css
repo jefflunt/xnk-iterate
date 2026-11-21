@@ -1,0 +1,42 @@
+/**
+ * xnk Design System - Typography Tokens (v2.0)
+ * Architectural Sans + Telemetry Monospace
+ * Prefix: --xnk-
+ */
+
+:root {
+  /* Font Families */
+  --xnk-font-sans: "Geist", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --xnk-font-mono: "Geist Mono", "Commit Mono", "JetBrains Mono", "SF Mono", Menlo, Consolas, Monaco, monospace;
+
+  /* Font Weights */
+  --xnk-weight-regular: 400;
+  --xnk-weight-medium: 500;
+  --xnk-weight-semibold: 600;
+  --xnk-weight-bold: 700;
+
+  /* Scale (Major Second 1.125 / Architectural Ratio) */
+  --xnk-text-2xs: 0.6875rem; /* 11px - Micro telemetry keys, char counters */
+  --xnk-text-xs: 0.75rem;    /* 12px - Badges, telemetry labels, micro timestamps */
+  --xnk-text-sm: 0.84375rem; /* 13.5px - Secondary UI, table cells, metadata */
+  --xnk-text-base: 0.9375rem;/* 15px - Body copy, standard buttons */
+  --xnk-text-md: 1.0625rem;  /* 17px - Emphasized body, subheads */
+  --xnk-text-lg: 1.25rem;    /* 20px - Card titles, modal headers */
+  --xnk-text-xl: 1.5rem;     /* 24px - Section headers */
+  --xnk-text-2xl: 2rem;      /* 32px - Page titles */
+  --xnk-text-3xl: 2.75rem;   /* 44px - Major feature headers */
+  --xnk-text-hero: 3.75rem;  /* 60px - Display / hero statements */
+
+  /* Line Heights */
+  --xnk-leading-tight: 1.1;
+  --xnk-leading-snug: 1.25;
+  --xnk-leading-normal: 1.5;
+  --xnk-leading-relaxed: 1.65;
+
+  /* Letter Spacing (Architectural Tonal Tracking) */
+  --xnk-tracking-tightest: -0.035em; /* Large hero headers */
+  --xnk-tracking-tight: -0.02em;     /* Section titles, card titles */
+  --xnk-tracking-normal: -0.005em;   /* Body copy */
+  --xnk-tracking-wide: 0.04em;       /* Micro uppercase labels, mono data */
+  --xnk-tracking-widest: 0.08em;     /* Section tag pills, telemetry keys */
+}

@@ -1,0 +1,8 @@
+/**
+ * xnk Design System — Complete Master Bundle (v2.0)
+ * Zero-dependency, framework-agnostic.
+ * Includes all design tokens, typography, accessibility defaults, and UI components.
+ */
+
+@import "./tokens/index.css";
+@import "./components/index.css";

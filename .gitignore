@@ -1,1 +1,48 @@
+# OS & Editor metadata
 .DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Compiled binaries & build outputs
+bin/
+dist/
+build/
+*.app/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/xnk-iterate
+/xnk-mcp
+
+# Go profiling & coverage artifacts
+coverage.out
+coverage.html
+*.coverprofile
+*.prof
+
+# Temporary files, logs, caches & runtime media/recordings
+*.log
+logs/
+tmp/
+temp/
+.cache/
+storage/
+recordings/
+*.mp4
+*.m4v
+*.mov
+*.wav
+*.pcm
+
+# Local environment & secrets
+.env
+.env.local
+.env.*.local

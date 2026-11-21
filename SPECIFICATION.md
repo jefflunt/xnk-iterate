@@ -1,6 +1,6 @@
-# Technical Specification (`xnk-capture`)
+# Technical Specification (`xnk-iterate`)
 
-This document defines the data models, wire protocols, file formats, and hardware configuration specifications for `xnk-capture`.
+This document defines the data models, wire protocols, file formats, and hardware configuration specifications for `xnk-iterate`.
 
 ---
 
@@ -114,7 +114,7 @@ public enum FrameRole: String, Codable {
 
 ## 3. Real-Time WebSocket Protocol
 
-When running in live mode, `xnk-capture` hosts a WebSocket server at `ws://127.0.0.1:9292`.
+When running in live mode, `xnk-iterate` hosts a WebSocket server at `ws://127.0.0.1:9292`.
 
 ### 3.1 Event: `capture_started`
 Emitted immediately when recording begins.
@@ -156,8 +156,8 @@ Emitted the instant speech silence terminates a comment.
       "location": { "x": 1380, "y": 42 },
       "focused_app": "com.apple.Safari"
     },
-    "trigger_frame_path": "/Users/jefflunt/code/xnk-capture/storage/recordings/frames/frame_04_trigger_25.80s.png",
-    "reaction_frame_path": "/Users/jefflunt/code/xnk-capture/storage/recordings/frames/frame_04_reaction_33.20s.png"
+    "trigger_frame_path": "/Users/jefflunt/code/xnk-iterate/storage/recordings/frames/frame_04_trigger_25.80s.png",
+    "reaction_frame_path": "/Users/jefflunt/code/xnk-iterate/storage/recordings/frames/frame_04_reaction_33.20s.png"
   }
 }
 ```
@@ -170,13 +170,46 @@ Emitted when recording stops and the archive package is sealed.
   "capture_id": "8f3b6c2d-98e1-4c91-9e23-7fa34710bc4e",
   "duration_seconds": 145.2,
   "total_utterances": 18,
-  "bundle_path": "/Users/jefflunt/code/xnk-capture/storage/recordings/capture_8f3b6c2d_1795281000/"
+  "bundle_path": "/Users/jefflunt/code/xnk-iterate/storage/recordings/capture_8f3b6c2d_1795281000/"
 }
 ```
 
+### 3.4 Embedded `agy` Session Transport & Bidirectional Control
+`xnk-iterate` spawns and owns the Google Antigravity runtime directly (scoped to the selected workspace directory), supporting both:
+- **NDJSON Stream Mode:** `agy --print --input-format stream-json --output-format stream-json [--continue | --conversation <id>]` for real-time turn injection and streamed assistant/tool events.
+- **ACP / SDK Mode:** `agy acp` (Agent Client Protocol over stdio) or the Antigravity Python SDK for interactive bidirectional tool-permission approval callbacks.
+
+#### Utterance Dispatch Modes
+1. **Auto-Stream (Default):** On silence termination (`400ms–500ms`), immediately format and write the finalized `director_utterance` (transcript + lookback range + `trigger_action` + Trigger/Reaction PNG paths) to `agy` stdin.
+2. **Batch-Hold Mode (Hotkey Toggle/Hold):** Accumulates multiple consecutive utterances and their extracted frames into a single buffered payload; dispatches as one combined turn when released/confirmed.
+
+#### Voice Permission Approval Router
+When `agy` emits a permission request event (e.g., shell execution or non-workspace file edit):
+1. `xnk-iterate` pauses normal utterance forwarding and enters `awaitingApproval` state.
+2. HUD displays the pending command/action and speaks a concise prompt via TTS.
+3. STT listens for short confirmation intents (`approve` / `yes` / `allow` / `always` vs. `deny` / `no` / `cancel`) or hotkey (`⌘Y` / `⌘N`), writes the decision back to `agy`, and resumes normal director mode.
+
+#### Barge-In & Acoustic Echo Cancellation
+- `AVAudioEngine` enables Voice Processing I/O (`kAudioUnitSubType_VoiceProcessingIO`) so TTS audio is cancelled from the mic stream.
+- Any user speech exceeding VAD threshold for `> 200ms` during TTS playback immediately invokes `AVSpeechSynthesizer.stopSpeaking(at: .immediate)` and begins capturing the interrupting utterance.
+
 ---
 
-## 4. macOS Permissions & System Capabilities Required
+## 4. Embedded Vision MCP Server Contract
+
+`xnk-iterate` injects a lightweight local MCP server configuration into the owned `agy` session so the agent can inspect the live capture buffer on demand:
+
+| Tool | Arguments | Behavior |
+| :--- | :--- | :--- |
+| `xnk_grab_frame` | `{ "timestamp"?: number }` | Extracts a PNG from the in-memory `CVPixelBuffer` ring buffer (defaults to current frame) and returns its local path. |
+| `xnk_get_clip` | `{ "start": number, "end": number }` | Slices a lightweight `.mp4` sub-clip from the active `fMP4` recording for multi-second motion/animation inspection. |
+| `xnk_session_status` | `{}` | Returns current capture target metadata, elapsed time, active mode (`auto` / `batch`), and recent utterance IDs. |
+
+*(Optional local WebSocket `ws://127.0.0.1:9292` remains available for external tooling or attaching a secondary observer.)*
+
+---
+
+## 5. macOS Permissions & System Capabilities Required
 
 1. **Screen Recording:** `CGRequestScreenCaptureAccess()` (Required for `ScreenCaptureKit` and window surface access).
 2. **Microphone Access:** `AVCaptureDevice.requestAccess(for: .audio)` (Required for speech ingestion).

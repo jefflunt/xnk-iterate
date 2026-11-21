@@ -1,0 +1,280 @@
+/**
+ * xnk Design System — Forms, Inputs, Switches & Selectable Controls
+ */
+
+.xnk-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--xnk-space-2);
+}
+
+.xnk-label {
+  font-size: var(--xnk-text-xs);
+  font-family: var(--xnk-font-mono);
+  font-weight: var(--xnk-weight-medium);
+  letter-spacing: var(--xnk-tracking-wide);
+  text-transform: uppercase;
+  color: var(--xnk-text-secondary);
+}
+
+.xnk-input,
+.xnk-textarea,
+.xnk-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.72rem 0.95rem;
+  border-radius: var(--xnk-radius-sm);
+  background: var(--xnk-surface-2);
+  border: 1px solid var(--xnk-border-hairline);
+  color: var(--xnk-text-high-contrast);
+  font-family: var(--xnk-font-sans);
+  font-size: var(--xnk-text-base);
+  line-height: var(--xnk-leading-normal);
+  transition:
+    border-color var(--xnk-duration-fast) var(--xnk-ease-standard),
+    background-color var(--xnk-duration-fast) var(--xnk-ease-standard),
+    box-shadow var(--xnk-duration-fast) var(--xnk-ease-standard);
+}
+
+.xnk-input::placeholder,
+.xnk-textarea::placeholder {
+  color: var(--xnk-text-muted);
+}
+
+.xnk-input:focus,
+.xnk-textarea:focus,
+.xnk-select:focus {
+  outline: none;
+  border-color: var(--xnk-border-frost-hover);
+  background: var(--xnk-surface-3);
+  box-shadow: 0 0 0 2px var(--xnk-accent-cyan-tint);
+}
+
+.xnk-input.is-error,
+.xnk-textarea.is-error,
+.xnk-select.is-error {
+  border-color: var(--xnk-accent-crimson);
+  box-shadow: 0 0 0 1px var(--xnk-accent-crimson);
+}
+
+/* Recessed Composer / Textarea Box with Live Character Counter */
+.xnk-composer-box {
+  position: relative;
+  display: flex;
+  background: var(--xnk-surface-recessed);
+  border: 1px solid var(--xnk-border-strong);
+  border-radius: var(--xnk-radius-md);
+  padding: 0.7rem 0.9rem;
+  transition: border-color var(--xnk-duration-fast) ease, box-shadow var(--xnk-duration-fast) ease;
+}
+
+.xnk-composer-box:focus-within {
+  border-color: var(--xnk-accent-cyan);
+  box-shadow: 0 0 14px var(--xnk-accent-cyan-glow);
+}
+
+.xnk-composer-box textarea {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--xnk-text-high-contrast);
+  font-family: inherit;
+  font-size: var(--xnk-text-sm);
+  line-height: var(--xnk-leading-normal);
+  min-height: 52px;
+  resize: vertical;
+  outline: none;
+  padding-right: 3rem;
+}
+
+.xnk-char-count {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.85rem;
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-2xs);
+  color: var(--xnk-text-muted);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+.xnk-char-count.is-near-limit {
+  color: var(--xnk-accent-amber);
+}
+
+.xnk-char-count.is-at-limit {
+  color: var(--xnk-accent-crimson);
+}
+
+/* Toggle Switch */
+.xnk-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.xnk-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.xnk-switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--xnk-radius-full);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--xnk-border-strong);
+  transition: all var(--xnk-duration-base) var(--xnk-ease-standard);
+}
+
+.xnk-switch-track::before {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  top: 3px;
+  border-radius: 50%;
+  background: var(--xnk-text-secondary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  transition: transform var(--xnk-duration-base) var(--xnk-ease-standard),
+              background-color var(--xnk-duration-base) var(--xnk-ease-standard),
+              box-shadow var(--xnk-duration-base) var(--xnk-ease-standard);
+}
+
+.xnk-switch input:checked + .xnk-switch-track {
+  background: var(--xnk-accent-cyan-tint);
+  border-color: var(--xnk-accent-cyan);
+  box-shadow: 0 0 12px var(--xnk-accent-cyan-glow);
+}
+
+.xnk-switch input:checked + .xnk-switch-track::before {
+  transform: translateX(20px);
+  background: var(--xnk-accent-cyan);
+  box-shadow: 0 0 8px var(--xnk-accent-cyan-glow);
+}
+
+.xnk-switch input:focus-visible + .xnk-switch-track {
+  box-shadow: var(--xnk-focus-ring);
+}
+
+.xnk-switch-group.is-disabled {
+  opacity: 0.42;
+  pointer-events: none;
+  filter: grayscale(0.5);
+  transition: opacity var(--xnk-duration-base) ease;
+}
+
+/* Segmented Pill Control */
+.xnk-segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  background: var(--xnk-surface-recessed);
+  border: 1px solid var(--xnk-border-hairline);
+  border-radius: var(--xnk-radius-full);
+}
+
+.xnk-segmented-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.95rem;
+  border-radius: var(--xnk-radius-full);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--xnk-text-secondary);
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-xs);
+  font-weight: var(--xnk-weight-medium);
+  cursor: pointer;
+  transition: all var(--xnk-duration-base) var(--xnk-ease-standard);
+}
+
+.xnk-segmented-btn:hover {
+  color: var(--xnk-text-high-contrast);
+}
+
+.xnk-segmented-btn.is-active {
+  background: var(--xnk-accent-primary-tint);
+  border-color: var(--xnk-accent-primary-border);
+  color: var(--xnk-text-high-contrast);
+  box-shadow: 0 0 14px var(--xnk-accent-primary-glow);
+}
+
+.xnk-segmented-btn.is-active[data-tone="cyan"] {
+  background: var(--xnk-accent-cyan-tint);
+  border-color: var(--xnk-accent-cyan-border);
+  color: var(--xnk-accent-cyan);
+  box-shadow: 0 0 14px var(--xnk-accent-cyan-glow);
+}
+
+.xnk-segmented-btn.is-active[data-tone="amber"] {
+  background: var(--xnk-accent-amber-tint);
+  border-color: var(--xnk-accent-amber-border);
+  color: var(--xnk-accent-amber-hover);
+  box-shadow: 0 0 14px var(--xnk-accent-amber-glow);
+}
+
+/* Selectable Radio / Plan Cards */
+.xnk-radio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--xnk-space-4);
+}
+
+.xnk-radio-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--xnk-space-2);
+  padding: var(--xnk-space-5) var(--xnk-space-4);
+  background: var(--xnk-surface-2);
+  border: 1px solid var(--xnk-border-hairline);
+  border-radius: var(--xnk-radius-md);
+  cursor: pointer;
+  transition:
+    border-color var(--xnk-duration-base) var(--xnk-ease-standard),
+    background-color var(--xnk-duration-base) var(--xnk-ease-standard),
+    box-shadow var(--xnk-duration-base) var(--xnk-ease-standard);
+}
+
+.xnk-radio-card input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.xnk-radio-card:hover {
+  border-color: var(--xnk-border-frost);
+}
+
+.xnk-radio-card.is-selected,
+.xnk-radio-card:has(input[type="radio"]:checked) {
+  border-color: var(--xnk-accent-primary-hover);
+  background: var(--xnk-accent-primary-tint);
+  box-shadow: 0 0 20px var(--xnk-accent-primary-glow);
+}
+
+.xnk-radio-card-badge {
+  position: absolute;
+  top: -9px;
+  right: 12px;
+  padding: 0.15rem 0.55rem;
+  border-radius: var(--xnk-radius-full);
+  background: var(--xnk-accent-emerald);
+  color: var(--xnk-text-inverse);
+  font-family: var(--xnk-font-mono);
+  font-size: 0.65rem;
+  font-weight: var(--xnk-weight-bold);
+  letter-spacing: var(--xnk-tracking-wide);
+  text-transform: uppercase;
+}

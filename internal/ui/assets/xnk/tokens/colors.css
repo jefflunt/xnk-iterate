@@ -1,0 +1,115 @@
+/**
+ * xnk Design System - Color & Surface Tokens (v2.0)
+ * Architectural, dark-mode-first palette with Electric Cobalt & Icy Cyan.
+ * Prefix: --xnk-
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Canvas & Void */
+  --xnk-bg-void: #000000;
+  --xnk-bg-canvas: #050507;
+
+  /* Layered Surfaces */
+  --xnk-surface-1: #0c0c0e;
+  --xnk-surface-2: #141417;
+  --xnk-surface-3: #1c1c21;
+  --xnk-surface-recessed: rgba(0, 0, 0, 0.45);
+  --xnk-surface-pill: rgba(255, 255, 255, 0.04);
+  --xnk-surface-overlay: rgba(12, 12, 14, 0.85);
+
+  /* Translucent & Glass Surfaces (3-Tier Depth Ladder) */
+  --xnk-glass-subtle: rgba(20, 20, 23, 0.65);
+  --xnk-glass-chrome: rgba(10, 10, 14, 0.78);
+  --xnk-glass-modal: rgba(14, 14, 20, 0.96);
+
+  --xnk-blur-subtle: blur(12px);
+  --xnk-blur-chrome: blur(20px);
+  --xnk-blur-modal: blur(32px);
+
+  /* Legacy Glass Aliases */
+  --xnk-glass-surface: var(--xnk-glass-subtle);
+  --xnk-glass-blur: var(--xnk-blur-subtle);
+
+  /* Hairline & Structural Borders */
+  --xnk-border-subtle: rgba(255, 255, 255, 0.05);
+  --xnk-border-hairline: rgba(255, 255, 255, 0.09);
+  --xnk-border-strong: rgba(255, 255, 255, 0.16);
+  --xnk-border-focus: rgba(255, 255, 255, 0.35);
+
+  /* Frost & Active Edge Accents */
+  --xnk-border-frost: rgba(214, 235, 253, 0.18);
+  --xnk-border-frost-hover: rgba(214, 235, 253, 0.38);
+
+  /* Typography / Text Grayscale */
+  --xnk-text-high-contrast: #ffffff;
+  --xnk-text-primary: #ededed;
+  --xnk-text-secondary: #a1a1aa;
+  --xnk-text-muted: #71717a;
+  --xnk-text-faint: #3f3f46;
+  --xnk-text-inverse: #000000;
+
+  /* ========================================================================
+     Functional Chroma — 5-Token Ramps (base, hover, glow, tint, border)
+     ======================================================================== */
+
+  /* Electric Cobalt — Primary Interactive Brand Accent */
+  --xnk-accent-cobalt: #2e52e8;
+  --xnk-accent-cobalt-hover: #4b6ef5;
+  --xnk-accent-cobalt-glow: rgba(46, 82, 232, 0.28);
+  --xnk-accent-cobalt-tint: rgba(46, 82, 232, 0.12);
+  --xnk-accent-cobalt-border: rgba(46, 82, 232, 0.38);
+
+  /* Semantic Primary Aliases (override these per-app to re-theme primary accent) */
+  --xnk-accent-primary: var(--xnk-accent-cobalt);
+  --xnk-accent-primary-hover: var(--xnk-accent-cobalt-hover);
+  --xnk-accent-primary-glow: var(--xnk-accent-cobalt-glow);
+  --xnk-accent-primary-tint: var(--xnk-accent-cobalt-tint);
+  --xnk-accent-primary-border: var(--xnk-accent-cobalt-border);
+
+  /* Icy Cyan — Unified Technical Telemetry, Active Focus & AI Accent */
+  --xnk-accent-cyan: #38bdf8;
+  --xnk-accent-cyan-hover: #7dd3fc;
+  --xnk-accent-cyan-glow: rgba(56, 189, 248, 0.22);
+  --xnk-accent-cyan-tint: rgba(56, 189, 248, 0.12);
+  --xnk-accent-cyan-border: rgba(56, 189, 248, 0.36);
+
+  /* Emerald — Nominal Status, Live Indicators, Verified / Success */
+  --xnk-accent-emerald: #10b981;
+  --xnk-accent-emerald-hover: #34d399;
+  --xnk-accent-emerald-glow: rgba(16, 185, 129, 0.22);
+  --xnk-accent-emerald-tint: rgba(16, 185, 129, 0.12);
+  --xnk-accent-emerald-border: rgba(16, 185, 129, 0.35);
+
+  /* Amber — System Warnings, Updates, Pending Review & Human/Admin Presence */
+  --xnk-accent-amber: #f59e0b;
+  --xnk-accent-amber-hover: #fbbf24;
+  --xnk-accent-amber-glow: rgba(245, 158, 11, 0.24);
+  --xnk-accent-amber-tint: rgba(245, 158, 11, 0.12);
+  --xnk-accent-amber-border: rgba(245, 158, 11, 0.38);
+
+  /* Crimson — Destructive Actions & Error States */
+  --xnk-accent-crimson: #f43f5e;
+  --xnk-accent-crimson-hover: #fb7185;
+  --xnk-accent-crimson-glow: rgba(244, 63, 94, 0.24);
+  --xnk-accent-crimson-tint: rgba(244, 63, 94, 0.12);
+  --xnk-accent-crimson-border: rgba(244, 63, 94, 0.38);
+
+  /* Electric Ember — Optional Warm Secondary Accent */
+  --xnk-accent-ember: #ff7722;
+  --xnk-accent-ember-hover: #ff8a3d;
+  --xnk-accent-ember-glow: rgba(255, 119, 34, 0.22);
+  --xnk-accent-ember-tint: rgba(255, 119, 34, 0.12);
+  --xnk-accent-ember-border: rgba(255, 119, 34, 0.38);
+
+  /* Focus Ring */
+  --xnk-focus-ring: 0 0 0 2px var(--xnk-bg-void), 0 0 0 4px var(--xnk-accent-cyan);
+
+  /* Radial & Spotlight Gradients */
+  --xnk-radial-card-glow: radial-gradient(
+    600px circle at var(--xnk-mouse-x, 50%) var(--xnk-mouse-y, 50%),
+    rgba(255, 255, 255, 0.04),
+    transparent 40%
+  );
+}

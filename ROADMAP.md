@@ -1,6 +1,6 @@
-# Engineering Roadmap (`xnk-capture`)
+# Engineering Roadmap (`xnk-iterate`)
 
-This document defines the implementation phases for building `xnk-capture` from scratch as a native macOS application.
+This document defines the implementation phases for building `xnk-iterate` from scratch as a native macOS application.
 
 ---
 
@@ -49,7 +49,7 @@ This document defines the implementation phases for building `xnk-capture` from 
 - [ ] Implement `BundleExporter`:
   - Output structured folder: `recording.mp4`, `manifest.json`, and `frames/`.
   - Save extracted PNG snapshots with timestamp filenames.
-- [ ] Build a companion CLI command (`xnk-capture analyze <path>`) for headless script automation.
+- [ ] Build a companion CLI command (`xnk-iterate analyze <path>`) for headless script automation.
 
 ---
 
@@ -69,9 +69,18 @@ This document defines the implementation phases for building `xnk-capture` from 
 
 ---
 
-## Phase 6: Antigravity Agent Skill Integration
-*Goal: Seamless plug-and-play integration with the Antigravity assistant.*
+## Phase 6: Embedded Google Antigravity Live Voice + Vision Session
+*Goal: Spawn and own a live Google Antigravity (`agy`) session directly inside `xnk-iterate`, delivering a full two-way conversational voice + screen vision loop modeled after `/voice live`.*
 
-- [ ] Create `/xnk-capture` skill in `~/.gemini/config/skills/xnk-capture/SKILL.md`.
-- [ ] Add live listener script that connects to `ws://localhost:9292` and forwards events into the active agent conversation.
-- [ ] Test end-to-end: speak a bug report over Xcode/Simulator -> agent receives frame + transcript in real time -> code edited and verified.
+- [ ] Implement `AntigravitySessionController` in Swift:
+  - Spawn and manage an owned `agy` process (`--input-format stream-json --output-format stream-json` / `agy acp`) scoped to the selected project workspace, with support for `--continue` / `--conversation <id>`.
+  - Parse streamed NDJSON/ACP events (assistant text deltas, tool calls, permission requests, turn completion) in real time.
+- [ ] Implement **Auto-Stream + Batch-Hold Dispatcher**:
+  - Auto-dispatch finalized utterances (~400–500ms silence) with Trigger/Reaction PNG paths and `CGEventTap` metadata straight to `agy`.
+  - Add Batch-Hold hotkey (`⌥ + B`) to accumulate multi-sentence thoughts into a single combined multimodal turn.
+- [ ] Implement **Full Two-Way Conversational Voice**:
+  - Enable `AVAudioEngine` Voice Processing I/O (hardware AEC) so agent speech never re-triggers mic STT.
+  - Stream spoken agent replies via `AVSpeechSynthesizer` (sentence-chunked) with instant VAD barge-in interruption (`> 200ms` user speech stops TTS immediately).
+  - Build **Voice Permission Approval Router**: surface pending `agy` permission prompts on the HUD, speak a concise confirmation question, and accept `"approve"` / `"deny"` voice commands (or `⌘Y` / `⌘N`).
+- [ ] Wire embedded local MCP server (`xnk_grab_frame`, `xnk_get_clip`, `xnk_session_status`) into the spawned `agy` session for on-demand visual inspection.
+- [ ] Test end-to-end live loop: launch capture over target app -> speak a bug report -> `agy` inspects Trigger/Reaction frames, asks voice approval to run tests, speaks status update while user interrupts mid-sentence to steer the next fix.

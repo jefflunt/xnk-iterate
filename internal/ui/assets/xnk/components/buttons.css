@@ -1,0 +1,230 @@
+/**
+ * xnk Design System — Buttons & Interactive Actions
+ */
+
+.xnk-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--xnk-space-2);
+  font-family: var(--xnk-font-sans);
+  font-size: var(--xnk-text-sm);
+  font-weight: var(--xnk-weight-medium);
+  letter-spacing: var(--xnk-tracking-normal);
+  line-height: 1.2;
+  padding: 0.55rem 1.05rem;
+  border-radius: var(--xnk-radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background-color var(--xnk-duration-fast) var(--xnk-ease-standard),
+    border-color var(--xnk-duration-fast) var(--xnk-ease-standard),
+    color var(--xnk-duration-fast) var(--xnk-ease-standard),
+    box-shadow var(--xnk-duration-fast) var(--xnk-ease-standard),
+    transform var(--xnk-duration-fast) var(--xnk-ease-standard);
+}
+
+.xnk-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--xnk-focus-ring);
+}
+
+.xnk-btn:disabled,
+.xnk-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
+}
+
+/* Sizes */
+.xnk-btn-sm {
+  font-size: var(--xnk-text-xs);
+  padding: 0.38rem 0.8rem;
+}
+
+.xnk-btn-lg {
+  font-size: var(--xnk-text-base);
+  padding: 0.8rem 1.5rem;
+}
+
+/* High-Contrast Monochrome Primary */
+.xnk-btn-primary {
+  background-color: var(--xnk-text-high-contrast);
+  color: var(--xnk-text-inverse);
+  border-color: var(--xnk-text-high-contrast);
+}
+
+.xnk-btn-primary:hover {
+  background-color: #e4e4e7;
+  border-color: #e4e4e7;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(255, 255, 255, 0.14);
+}
+
+/* Electric Cobalt — Brand Accent CTA */
+.xnk-btn-cobalt,
+.xnk-btn-accent {
+  background-color: var(--xnk-accent-primary);
+  color: var(--xnk-text-high-contrast);
+  border-color: var(--xnk-accent-primary);
+  box-shadow: 0 2px 14px var(--xnk-accent-primary-glow);
+}
+
+.xnk-btn-cobalt:hover,
+.xnk-btn-accent:hover {
+  background-color: var(--xnk-accent-primary-hover);
+  border-color: var(--xnk-accent-primary-hover);
+  box-shadow: var(--xnk-shadow-glow-primary);
+  transform: translateY(-1px);
+}
+
+/* Secondary Surface Button */
+.xnk-btn-secondary {
+  background-color: var(--xnk-surface-2);
+  color: var(--xnk-text-primary);
+  border-color: var(--xnk-border-hairline);
+}
+
+.xnk-btn-secondary:hover {
+  background-color: var(--xnk-surface-3);
+  border-color: var(--xnk-border-frost);
+  color: var(--xnk-text-high-contrast);
+  transform: translateY(-1px);
+}
+
+/* Cyan Tinted Telemetry / AI Action Button */
+.xnk-btn-cyan {
+  background-color: var(--xnk-accent-cyan-tint);
+  color: var(--xnk-accent-cyan);
+  border-color: var(--xnk-accent-cyan-border);
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-xs);
+}
+
+.xnk-btn-cyan:hover {
+  background-color: var(--xnk-accent-cyan);
+  border-color: var(--xnk-accent-cyan);
+  color: var(--xnk-text-inverse);
+  box-shadow: var(--xnk-shadow-glow-cyan);
+  transform: translateY(-1px);
+}
+
+/* Amber Warning / Update Confirmation Button */
+.xnk-btn-amber {
+  background-color: var(--xnk-accent-amber-tint);
+  color: var(--xnk-accent-amber-hover);
+  border-color: var(--xnk-accent-amber-border);
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-xs);
+}
+
+.xnk-btn-amber:hover {
+  background-color: rgba(245, 158, 11, 0.26);
+  border-color: var(--xnk-accent-amber-hover);
+  color: var(--xnk-text-high-contrast);
+  box-shadow: var(--xnk-shadow-glow-amber);
+  transform: translateY(-1px);
+}
+
+/* Ghost & Destructive Hover Button */
+.xnk-btn-ghost {
+  background-color: transparent;
+  color: var(--xnk-text-secondary);
+  border-color: var(--xnk-border-subtle);
+}
+
+.xnk-btn-ghost:hover {
+  background-color: var(--xnk-surface-pill);
+  border-color: var(--xnk-border-strong);
+  color: var(--xnk-text-high-contrast);
+}
+
+.xnk-btn-danger {
+  background-color: transparent;
+  color: var(--xnk-text-muted);
+  border-color: var(--xnk-border-subtle);
+}
+
+.xnk-btn-danger:hover {
+  background-color: var(--xnk-accent-crimson-tint);
+  border-color: var(--xnk-accent-crimson-border);
+  color: var(--xnk-accent-crimson-hover);
+}
+
+/* Optional Warm Ember Variant */
+.xnk-btn-ember {
+  background-color: var(--xnk-accent-ember);
+  color: var(--xnk-text-high-contrast);
+  border-color: var(--xnk-accent-ember);
+}
+
+.xnk-btn-ember:hover {
+  background-color: var(--xnk-accent-ember-hover);
+  box-shadow: var(--xnk-shadow-glow-ember);
+  transform: translateY(-1px);
+}
+
+/* Pill Action Button (Floating Headers & Toolbars) */
+.xnk-btn-pill {
+  border-radius: var(--xnk-radius-full);
+  padding: 0.4rem 0.9rem;
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-xs);
+  background-color: var(--xnk-surface-pill);
+  border-color: var(--xnk-border-hairline);
+  color: var(--xnk-text-secondary);
+}
+
+.xnk-btn-pill:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  border-color: var(--xnk-border-frost);
+  color: var(--xnk-text-high-contrast);
+}
+
+.xnk-btn-pill.is-active,
+.xnk-btn-pill[aria-pressed="true"] {
+  background-color: var(--xnk-accent-cyan-tint);
+  border-color: var(--xnk-accent-cyan-border);
+  color: var(--xnk-accent-cyan);
+  box-shadow: 0 0 14px var(--xnk-accent-cyan-glow);
+}
+
+/* Compact Circular Icon Button */
+.xnk-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--xnk-radius-full);
+  background-color: var(--xnk-surface-pill);
+  border: 1px solid var(--xnk-border-hairline);
+  color: var(--xnk-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--xnk-duration-fast) var(--xnk-ease-standard);
+}
+
+.xnk-icon-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--xnk-border-frost-hover);
+  color: var(--xnk-text-high-contrast);
+  transform: translateY(-1px);
+}
+
+.xnk-icon-btn.is-active {
+  background-color: var(--xnk-accent-cyan-tint);
+  border-color: var(--xnk-accent-cyan-border);
+  color: var(--xnk-accent-cyan);
+  box-shadow: 0 0 12px var(--xnk-accent-cyan-glow);
+}
+
+.xnk-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--xnk-focus-ring);
+}

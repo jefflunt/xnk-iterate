@@ -1,6 +1,6 @@
-# System Architecture (`xnk-capture`)
+# System Architecture (`xnk-iterate`)
 
-This document outlines the architectural design of `xnk-capture`, detailing how native macOS frameworks, real-time audio/video processing, temporal indexing, and AI agent integration work together.
+This document outlines the architectural design of `xnk-iterate`, detailing how native macOS frameworks, real-time audio/video processing, temporal indexing, and AI agent integration work together.
 
 ---
 
@@ -18,26 +18,29 @@ flowchart TD
         BUFFER["In-Memory Frame Ring Buffer\nLast 15-30s CVPixelBuffers"]
         FMP4["AVAssetWriter (Fragmented MP4)\nContinuous Video Stream to Disk"]
         
-        VAD["Voice Activity Detection (VAD)\nSpeech Start / End Detection"]
+        VAD["Voice Activity Detection (VAD)\nAEC + Barge-In + Silence / Batch Gate"]
         STT["Real-Time STT Engine\nSFSpeechRecognizer / Whisper CoreML"]
+        TTS["Interruptible Voice Output\nAVSpeechSynthesizer + Barge-In Controller"]
         
         TIMELINE["Temporal Interaction Indexer\nEvent Log (Time, Type, Coords, App)"]
         LOOKBACK["Dynamic Lookback Engine\nCorrelates Speech + Actions -> Target Window"]
     end
 
-    subgraph Agent Bridge & Export
-        DISPATCHER["Real-Time Event Dispatcher\nLocal WebSocket (ws://localhost:9292) / IPC"]
-        BUNDLE["Artifact Package Builder\nvideo.mp4 + manifest.json + frames/"]
+    subgraph Embedded Antigravity Bridge & Export
+        AGY_HOST["Antigravity Session Controller\nSpawns & Owns agy (stream-json / ACP)\nNDJSON Stdin/Stdout + Permission Router"]
+        MCP["Embedded xnk-iterate MCP Server\nOn-Demand Frame Pull & Clip Slicing"]
+        BUNDLE["Artifact Package Builder\nrecording.mp4 + manifest.json + frames/"]
     end
 
-    subgraph AI Coding Agent (e.g., Antigravity)
-        AGENT["Active Agent Conversation\nIngests Trigger/Reaction Frames & Transcript"]
+    subgraph Google Antigravity Runtime
+        AGY["Owned agy Session\nNew or Resumed (--continue / --conversation)\nReads Frames, Edits Code, Streams Replies"]
     end
 
     SCK --> BUFFER
     SCK --> FMP4
     MIC --> FMP4
     MIC --> VAD
+    VAD -- "Barge-In Stop" --> TTS
     VAD --> STT
     EVENTS --> TIMELINE
 
@@ -45,9 +48,13 @@ flowchart TD
     STT --> LOOKBACK
     TIMELINE --> LOOKBACK
 
-    LOOKBACK --> DISPATCHER
+    LOOKBACK --> AGY_HOST
     LOOKBACK --> BUNDLE
-    DISPATCHER --> AGENT
+    AGY_HOST -- "NDJSON Utterance + Frames / Voice Approvals" --> AGY
+    AGY -- "NDJSON Text, Tool Calls, Permission Prompts" --> AGY_HOST
+    AGY_HOST --> TTS
+    AGY -- "MCP Tools (grab_frame, get_clip)" --> MCP
+    MCP --> BUFFER
 ```
 
 ---
@@ -151,21 +158,36 @@ func calculateLookback(speechStart: TimeInterval, speechEnd: TimeInterval) -> Lo
 
 ---
 
-## 4. AI Agent Communication Pipeline
+## 4. Embedded Google Antigravity Live Session Pipeline
 
-`xnk-capture` communicates with AI coding agents in two modes:
+`xnk-iterate` **spawns, owns, and directly orchestrates** a live Google Antigravity session — embedding a full two-way conversational voice + screen vision loop (modeled after Antigravity's `/voice live`) inside the native macOS capture app.
 
-### Mode 1: Live WebSocket Event Stream (Real-Time)
-* The app runs a lightweight local WebSocket server on `127.0.0.1:9292` (or Unix domain socket).
-* An agent (or Antigravity plugin/sidecar) connects to this stream.
-* On every finalized utterance, `xnk-capture` dispatches an event payload containing:
-  * Full transcription text.
-  * Precise timecode range.
-  * Local file paths to extracted PNG frames (saved in a designated scratch folder).
-  * App and interaction context (e.g. `window: "GameCanvas", clicked: (340, 520)`).
+### Mode 1: Owned `agy` Live Session (Primary)
+When a director session starts, `AntigravitySessionController` launches an `agy` child process scoped to the user's selected workspace:
+
+```bash
+agy --print \
+  --input-format stream-json \
+  --output-format stream-json \
+  [--continue | --conversation <id>] \
+  --settings /path/to/xnk-session-settings.json
+```
+*(Or `agy acp` / Python SDK where bidirectional tool-permission control is required; see `SPECIFICATION.md`.)*
+
+1. **Auto-Stream with Batch-Hold Hotkey:**
+   - **Default (Auto-Stream):** After ~400–500ms of silence, `DynamicLookbackEngine` extracts the Trigger and Reaction PNG frames and immediately writes a structured NDJSON turn to `agy`'s stdin containing the transcript, lookback timecodes, `CGEventTap` interaction context, and frame file paths.
+   - **Batch-Hold Mode:** Pressing/holding the Batch hotkey pauses auto-dispatch and buffers consecutive utterances + frames into a single combined multimodal turn, dispatched cleanly when released or confirmed.
+
+2. **Full Two-Way Conversational Voice (Barge-In & Voice Approvals):**
+   - **Acoustic Echo Cancellation (AEC):** `AVAudioEngine` enables Voice Processing I/O (`inputNode.setVoiceProcessingEnabled(true)`) so the agent's spoken voice does not re-trigger microphone VAD/STT.
+   - **Interruptible Speech (Barge-In):** As `agy` streams assistant response tokens over NDJSON stdout, sentence chunks are spoken aloud via `AVSpeechSynthesizer` (or optional local neural TTS). The moment VAD detects user speech (`> 200ms`), TTS playback stops immediately (`stopSpeaking(at: .immediate)`) so you can interrupt and steer mid-sentence.
+   - **Voice Permission Approvals:** When `agy` requests approval for a tool execution (e.g., running a shell command or editing a file), `xnk-iterate` surfaces an inline approval banner on the HUD, speaks a concise summary ("Approve running `swift test`?"), and intercepts voice intent (**"yes" / "approve" / "go ahead"** vs. **"no" / "deny" / "stop"**) or keyboard shortcuts to reply directly to `agy`.
+
+3. **On-Demand Vision Tools (Embedded MCP Server):**
+   - `xnk-iterate` registers a lightweight local MCP server with the spawned `agy` session so the agent can pull extra frames (`xnk_grab_frame`) or slice a short sub-clip (`xnk_get_clip`) from the rolling buffer / `fMP4` stream whenever it needs more visual context.
 
 ### Mode 2: Static Bundle Export (Post-Session)
-* When recording stops, a structured bundle is assembled:
+* Regardless of live streaming, stopping a recording always seals a self-contained bundle on disk:
   ```text
   storage/recordings/capture_<id>_<timestamp>/
   ├── recording.mp4

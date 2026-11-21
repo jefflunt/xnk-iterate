@@ -1,0 +1,269 @@
+/**
+ * xnk Design System — Cards, KPI Metrics, Summary Boxes, Code Boxes & Media Shelves
+ */
+
+/* Standard Architectural Card */
+.xnk-card {
+  background-color: var(--xnk-surface-1);
+  border: 1px solid var(--xnk-border-hairline);
+  border-radius: var(--xnk-radius-md);
+  transition:
+    border-color var(--xnk-duration-base) var(--xnk-ease-standard),
+    transform var(--xnk-duration-base) var(--xnk-ease-standard),
+    box-shadow var(--xnk-duration-base) var(--xnk-ease-standard);
+}
+
+.xnk-card:hover {
+  border-color: var(--xnk-border-frost);
+}
+
+.xnk-card-interactive {
+  cursor: pointer;
+}
+
+.xnk-card-interactive:hover {
+  transform: translateY(-2px);
+  border-color: var(--xnk-border-frost-hover);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+/* KPI / Metric Cards */
+.xnk-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--xnk-space-4);
+}
+
+.xnk-metric-card {
+  background: var(--xnk-surface-1);
+  border: 1px solid var(--xnk-border-hairline);
+  border-radius: var(--xnk-radius-md);
+  padding: var(--xnk-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--xnk-space-2);
+}
+
+.xnk-metric-card.is-highlight {
+  border-color: var(--xnk-accent-emerald-border);
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.xnk-metric-label {
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-2xs);
+  letter-spacing: var(--xnk-tracking-widest);
+  text-transform: uppercase;
+  color: var(--xnk-text-muted);
+}
+
+.xnk-metric-value {
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-2xl);
+  font-weight: var(--xnk-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: var(--xnk-text-high-contrast);
+}
+
+.xnk-metric-card.is-highlight .xnk-metric-value {
+  color: var(--xnk-accent-emerald);
+}
+
+.xnk-metric-sub {
+  font-size: var(--xnk-text-xs);
+  color: var(--xnk-text-secondary);
+}
+
+/* Key-Value Summary Box */
+.xnk-summary-box {
+  background: var(--xnk-surface-2);
+  border: 1px solid var(--xnk-border-hairline);
+  border-radius: var(--xnk-radius-md);
+  padding: var(--xnk-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.xnk-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--xnk-space-4);
+  font-size: var(--xnk-text-sm);
+}
+
+.xnk-summary-key {
+  color: var(--xnk-text-secondary);
+}
+
+.xnk-summary-val {
+  color: var(--xnk-text-high-contrast);
+  font-weight: var(--xnk-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.xnk-summary-total {
+  margin-top: var(--xnk-space-2);
+  padding-top: var(--xnk-space-3);
+  border-top: 1px solid var(--xnk-border-hairline);
+  font-size: var(--xnk-text-lg);
+  font-weight: var(--xnk-weight-bold);
+}
+
+/* Copyable Code / Token Box */
+.xnk-code-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--xnk-space-3);
+  padding: 0.6rem 0.85rem;
+  background: var(--xnk-accent-cyan-tint);
+  border: 1px dashed var(--xnk-accent-cyan-border);
+  border-radius: var(--xnk-radius-sm);
+}
+
+.xnk-code-value {
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-md);
+  font-weight: var(--xnk-weight-bold);
+  letter-spacing: 0.1em;
+  color: var(--xnk-accent-cyan);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Horizontal Media Shelf & Square Media Cards */
+.xnk-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: var(--xnk-space-3);
+}
+
+.xnk-shelf-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--xnk-space-4);
+}
+
+.xnk-shelf-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.xnk-shelf-track {
+  display: flex;
+  gap: var(--xnk-space-4);
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--xnk-space-2) 0 var(--xnk-space-4);
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+.xnk-shelf-track::-webkit-scrollbar {
+  display: none;
+}
+
+.xnk-media-card {
+  flex: 0 0 176px;
+  width: 176px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  cursor: pointer;
+  transition: transform var(--xnk-duration-base) var(--xnk-ease-standard);
+}
+
+.xnk-media-card:hover {
+  transform: translateY(-4px);
+}
+
+.xnk-media-artwork {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--xnk-radius-sm);
+  overflow: hidden;
+  background: var(--xnk-surface-2);
+  border: 1px solid var(--xnk-border-hairline);
+  box-shadow: var(--xnk-shadow-card);
+}
+
+.xnk-media-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform var(--xnk-duration-slow) var(--xnk-ease-standard);
+}
+
+.xnk-media-card:hover .xnk-media-artwork img {
+  transform: scale(1.04);
+}
+
+.xnk-media-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--xnk-duration-base) ease;
+}
+
+.xnk-media-card:hover .xnk-media-overlay,
+.xnk-media-card:focus-within .xnk-media-overlay {
+  opacity: 1;
+}
+
+.xnk-media-play {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--xnk-radius-full);
+  background: var(--xnk-accent-cyan);
+  color: var(--xnk-text-inverse);
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 18px var(--xnk-accent-cyan-glow);
+  transition: transform var(--xnk-duration-fast) var(--xnk-ease-standard),
+              background-color var(--xnk-duration-fast) ease;
+}
+
+.xnk-media-play:hover {
+  transform: scale(1.08);
+  background: var(--xnk-text-high-contrast);
+}
+
+.xnk-media-title {
+  font-size: var(--xnk-text-sm);
+  font-weight: var(--xnk-weight-semibold);
+  color: var(--xnk-text-high-contrast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xnk-media-subtitle {
+  font-size: var(--xnk-text-xs);
+  color: var(--xnk-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xnk-media-specs {
+  font-family: var(--xnk-font-mono);
+  font-size: var(--xnk-text-2xs);
+  color: var(--xnk-text-muted);
+}
