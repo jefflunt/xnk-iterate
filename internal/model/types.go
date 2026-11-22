@@ -187,33 +187,70 @@ type PermissionStatus struct {
 	AgyPath         string `json:"agy_path,omitempty"`
 }
 
-// SessionStateSnapshot is broadcast to the UI over WebSocket on state changes.
+// Modifier bitmask constants shared across UI, config, and native Carbon hotkey registration.
+const (
+	HotkeyModCmd     uint32 = 1 << 0 // ⌘ Command (metaKey)
+	HotkeyModShift   uint32 = 1 << 1 // ⇧ Shift
+	HotkeyModOption  uint32 = 1 << 2 // ⌥ Option / Alt
+	HotkeyModControl uint32 = 1 << 3 // ⌃ Control
+)
+
+// HotkeyBinding represents a single user-customizable global keyboard shortcut.
+// KeyCode uses standard KeyboardEvent.code names (e.g., "Enter", "Backspace", "KeyS", "F9").
+type HotkeyBinding struct {
+	KeyCode   string `json:"key_code"`
+	Modifiers uint32 `json:"modifiers"`
+	Display   string `json:"display"`
+}
+
+// HotkeyConfig holds the user's configured global shortcuts for Send Turn and Discard Turn.
+type HotkeyConfig struct {
+	SendTurn    HotkeyBinding `json:"send_turn"`
+	DiscardTurn HotkeyBinding `json:"discard_turn"`
+}
+
+// DefaultHotkeyConfig returns the default global shortcuts: ⌥↩ (Send) and ⌥⌫ (Discard).
+func DefaultHotkeyConfig() HotkeyConfig {
+	return HotkeyConfig{
+		SendTurn: HotkeyBinding{
+			KeyCode:   "Enter",
+			Modifiers: HotkeyModOption,
+			Display:   "⌥↩",
+		},
+		DiscardTurn: HotkeyBinding{
+			KeyCode:   "Backspace",
+			Modifiers: HotkeyModOption,
+			Display:   "⌥⌫",
+		},
+	}
+}
+
+// SessionStateSnapshot is broadcast to the Companion HUD over WebSocket on state changes.
 type SessionStateSnapshot struct {
-	CaptureID         string             `json:"capture_id,omitempty"`
-	Recording         bool               `json:"recording"`
-	Paused            bool               `json:"paused"`
-	BatchMode         bool               `json:"batch_mode"`
-	BatchedCount      int                `json:"batched_count"`
-	ElapsedSeconds    float64            `json:"elapsed_seconds"`
-	Target            *CaptureTarget     `json:"target,omitempty"`
-	Region            CaptureRegion      `json:"region"`
-	WorkspacePath     string             `json:"workspace_path"`
-	ConversationID    string             `json:"conversation_id,omitempty"`
-	ContinueSession   bool               `json:"continue_session"`
-	SilenceTimeoutMS  int                `json:"silence_timeout_ms"`
-	VoiceOutputMuted  bool               `json:"voice_output_muted"`
-	AgentState        AgentState         `json:"agent_state"`
-	AgentStatusText   string             `json:"agent_status_text"`
-	ActiveTools       []string           `json:"active_tools,omitempty"`
-	StreamingReply    string             `json:"streaming_reply,omitempty"`
-	LiveTranscript    string             `json:"live_transcript"`
-	AudioLevel        float64            `json:"audio_level"`
-	PendingApproval   *PermissionRequest `json:"pending_approval,omitempty"`
-	Utterances        []Utterance        `json:"utterances"`
-	ChatHistory       []ChatEntry        `json:"chat_history"`
-	Permissions       PermissionStatus   `json:"permissions"`
-	LastBundlePath    string             `json:"last_bundle_path,omitempty"`
-	LogFilePath       string             `json:"log_file_path,omitempty"`
-	HUDCompactMode    bool               `json:"hud_compact_mode"`
-	RecentInteraction *InteractionEvent  `json:"recent_interaction,omitempty"`
+	CaptureID         string            `json:"capture_id,omitempty"`
+	Recording         bool              `json:"recording"`
+	Paused            bool              `json:"paused"`
+	BatchMode         bool              `json:"batch_mode"`
+	BatchedCount      int               `json:"batched_count"`
+	ElapsedSeconds    float64           `json:"elapsed_seconds"`
+	Target            *CaptureTarget    `json:"target,omitempty"`
+	Region            CaptureRegion     `json:"region"`
+	Hotkeys           HotkeyConfig      `json:"hotkeys"`
+	ConversationID    string            `json:"conversation_id,omitempty"`
+	LinkedRepo        string            `json:"linked_repo,omitempty"`
+	LinkedBranch      string            `json:"linked_branch,omitempty"`
+	LinkedWorkspace   string            `json:"linked_workspace,omitempty"`
+	SilenceTimeoutMS  int               `json:"silence_timeout_ms"`
+	AgentState        AgentState        `json:"agent_state"`
+	AgentStatusText   string            `json:"agent_status_text"`
+	InjectedCount     int               `json:"injected_count"`
+	LastError         string            `json:"last_error,omitempty"`
+	LiveTranscript    string            `json:"live_transcript"`
+	AudioLevel        float64           `json:"audio_level"`
+	Utterances        []Utterance       `json:"utterances"`
+	Permissions       PermissionStatus  `json:"permissions"`
+	LastBundlePath    string            `json:"last_bundle_path,omitempty"`
+	LogFilePath       string            `json:"log_file_path,omitempty"`
+	DrawerOpen        bool              `json:"drawer_open"`
+	RecentInteraction *InteractionEvent `json:"recent_interaction,omitempty"`
 }

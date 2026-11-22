@@ -82,3 +82,18 @@
 ### Summary
 - Removed redundant root ALL CAPS design docs (`ARCHITECTURE.md`, `ROADMAP.md`, `SPECIFICATION.md`, `UI_DESIGN.md`) now superseded by `agent_docs/`.
 - Updated `README.md` and `agent_docs/README.md` links accordingly and bumped `VERSION` to `1.3.1` (`v1.3.1`).
+
+## 2026-11-21 — v2.0.0 Antigravity Partner Companion (`agentapi`), Customizable Global Hotkeys & Speech/Capture Fixes
+
+### Summary
+- **Antigravity Partner Companion Pivot (`internal/antigravity/controller.go`, `internal/server/server.go`, `skills/xnk-iterate/SKILL.md`):**
+  - Replaced the embedded `agy` chat wrapper with a direct **`agentapi` partner bridge** (`get-conversation-metadata`, `send-message --title="XNK Iterate Director"`) that injects voice commentary, lookback timecodes, OS interactions, and Trigger/Reaction frame paths directly into any existing Google Antigravity Desktop conversation.
+  - Added `/xnk-iterate` Antigravity skill (`skills/xnk-iterate/SKILL.md`, installed to `~/.gemini/config/skills/xnk-iterate/SKILL.md`) binding via `POST http://127.0.0.1:9292/api/bind` with `conversation_id`, `ls_address`, `csrf_token`, and `agentapi_exe` (persisted in `config.json` and injected into `agentapi`'s environment).
+  - Redesigned the desktop UI into a sleek `960×108` floating Companion HUD (expandable to `960×500` drawer for Captured Turns, Settings, and Diagnostic Logs) alongside the always-detached multi-monitor Capture Box.
+- **Voice-Activated Start + Customizable Global macOS Hotkeys (`internal/ui/hotkey_darwin.{m,go}`, `internal/model/hotkeys.go`):**
+  - Removed auto-send silence timers and batch send mode entirely.
+  - Implemented system-wide macOS Carbon hotkeys (`RegisterEventHotKey`, no Accessibility permission needed) defaulting to **`⌥↩`** (Send Turn) and **`⌥⌫`** (Discard Turn), plus an interactive click-to-record shortcut customizer in **⚙ Settings** with live re-registration and persistence.
+- **Speech & macOS Screen Recording Fixes (`internal/speech/helper_darwin.swift`, `internal/capture/capturer_darwin.go`):**
+  - Fixed native macOS speech recognition by removing `setVoiceProcessingEnabled(true)`, using native hardware mic format (`format: nil`), removing forced offline-only recognition, adding `taskGeneration` guards against stale callbacks on flush/discard, and adding full speech diagnostics + 250ms Send fallback.
+  - Guarded `darwinCapturer.Start` with `CGPreflightScreenCaptureAccess()` to prevent repeated macOS Screen Recording prompts after unsigned rebuilds, and added ad-hoc `codesign --force --deep --sign -` to `Makefile`.
+- Bumped `VERSION` to `2.0.0` (`v2.0.0`).

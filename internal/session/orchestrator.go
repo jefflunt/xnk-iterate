@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/jefflunt/xnk-iterate/internal/antigravity"
 	"github.com/jefflunt/xnk-iterate/internal/applog"
-	"github.com/jefflunt/xnk-iterate/internal/batcher"
 	"github.com/jefflunt/xnk-iterate/internal/bundle"
 	"github.com/jefflunt/xnk-iterate/internal/capture"
 	"github.com/jefflunt/xnk-iterate/internal/config"
@@ -23,26 +21,23 @@ import (
 	"github.com/jefflunt/xnk-iterate/internal/model"
 	"github.com/jefflunt/xnk-iterate/internal/ringbuffer"
 	"github.com/jefflunt/xnk-iterate/internal/speech"
-	"github.com/jefflunt/xnk-iterate/internal/voice"
 )
 
-// StartOptions configures a new live director capture + Antigravity session.
+// StartOptions configures a new live director capture session.
 type StartOptions struct {
-	TargetID        string `json:"target_id"`
-	WorkspacePath   string `json:"workspace_path"`
-	ConversationID  string `json:"conversation_id,omitempty"`
-	ContinueSession bool   `json:"continue_session"`
-	Model           string `json:"model,omitempty"`
-	Mode            string `json:"mode,omitempty"`
+	TargetID       string `json:"target_id,omitempty"`
+	ConversationID string `json:"conversation_id,omitempty"`
 }
 
 // LiveEvent is broadcast to connected UI clients over WebSocket.
 type LiveEvent struct {
-	Type    string `json:"type"` // "state", "audio_level", "live_frame", "toast"
+	Type    string `json:"type"` // "state", "audio_level"
 	Payload any    `json:"payload"`
 }
 
-// Orchestrator owns the full lifecycle of a live XNK Director session.
+// Orchestrator coordinates screen capture, interaction tracking, live speech-to-text,
+// dynamic lookback frame extraction, archive bundling, and direct injection into an
+// existing Google Antigravity session via `agentapi`.
 type Orchestrator struct {
 	mu sync.RWMutex
 
@@ -50,13 +45,10 @@ type Orchestrator struct {
 	capturer    capture.Capturer
 	tracker     interaction.Tracker
 	speechEng   speech.Engine
-	speaker     voice.Speaker
 	lookbackEng *lookback.Engine
-	batcher     *batcher.Dispatcher
-	agyCtrl     *antigravity.Controller
+	bridge      *antigravity.Bridge
 	ringBuf     *ringbuffer.FrameRingBuffer
 	timeline    *interaction.Timeline
-	chunker     voice.SentenceChunker
 
 	// Active session state
 	captureID         string
@@ -70,34 +62,37 @@ type Orchestrator struct {
 	utteranceSeq      int
 	target            *model.CaptureTarget
 	region            model.CaptureRegion
-	workspacePath     string
+	hotkeys           model.HotkeyConfig
 	conversationID    string
-	continueSession   bool
+	lsAddress         string
+	csrfToken         string
+	agentAPIExe       string
+	linkedRepo        string
+	linkedBranch      string
+	linkedWorkspace   string
 	silenceTimeoutMS  int
 	agentState        model.AgentState
 	agentStatusText   string
-	activeToolMap     map[string]string
-	activeToolOrder   []string
-	streamingReply    string
+	injectedCount     int
+	lastError         string
 	liveTranscript    string
 	audioLevel        float64
-	pendingApproval   *model.PermissionRequest
 	utterances        []model.Utterance
 	frames            []model.FrameSnapshot
-	chatHistory       []model.ChatEntry
 	lastBundlePath    string
-	hudCompactMode    bool
+	drawerOpen        bool
 	recentInteraction *model.InteractionEvent
 	sessionCancel     context.CancelFunc
-	lastLiveFrameAt   time.Time
 
-	subMu         sync.RWMutex
-	subscribers   map[chan LiveEvent]struct{}
-	onHUDToggle   func(compact bool)
-	onRegionEvent func(region model.CaptureRegion)
+	subMu            sync.RWMutex
+	subscribers      map[chan LiveEvent]struct{}
+	onDrawerToggle   func(expanded bool)
+	onRegionEvent    func(region model.CaptureRegion)
+	onHotkeysChange  func(cfg model.HotkeyConfig)
+	onHotkeysSuspend func(suspended bool)
 }
 
-// NewOrchestrator wires all subsystems for the current OS platform.
+// NewOrchestrator wires all capture and Antigravity partner subsystems.
 func NewOrchestrator(storageRoot string) *Orchestrator {
 	if storageRoot == "" {
 		if home, err := os.UserHomeDir(); err == nil {
@@ -126,28 +121,43 @@ func NewOrchestrator(storageRoot string) *Orchestrator {
 		defaultRegion.Visible = true
 	}
 
+	defaultHotkeys := model.DefaultHotkeyConfig()
+	if persisted.Hotkeys != nil {
+		if sendHK, err := model.NormalizeHotkeyBinding(persisted.Hotkeys.SendTurn); err == nil {
+			defaultHotkeys.SendTurn = sendHK
+		}
+		if discHK, err := model.NormalizeHotkeyBinding(persisted.Hotkeys.DiscardTurn); err == nil {
+			defaultHotkeys.DiscardTurn = discHK
+		}
+	}
+
 	o := &Orchestrator{
 		storageRoot:      storageRoot,
 		capturer:         capture.NewPlatformCapturer(),
 		tracker:          interaction.NewPlatformTracker(),
 		speechEng:        speech.NewPlatformEngine(),
-		speaker:          voice.NewPlatformSpeaker(),
 		lookbackEng:      lookback.New(),
+		bridge:           antigravity.NewBridge(),
 		ringBuf:          ringbuffer.New(30.0, 90),
 		timeline:         interaction.NewTimeline(5000),
 		region:           defaultRegion,
-		workspacePath:    persisted.WorkspacePath,
+		hotkeys:          defaultHotkeys,
 		conversationID:   persisted.ConversationID,
-		continueSession:  persisted.ContinueSession,
+		lsAddress:        persisted.LSAddress,
+		csrfToken:        persisted.CSRFToken,
+		agentAPIExe:      persisted.AgentAPIExe,
 		silenceTimeoutMS: persisted.SilenceTimeoutMS,
 		agentState:       model.AgentIdle,
-		agentStatusText:  "Ready to start live director session",
-		activeToolMap:    make(map[string]string),
+		agentStatusText:  "Run /xnk-iterate in Antigravity to link",
 		subscribers:      make(map[chan LiveEvent]struct{}),
 	}
 
-	// Default AI Text-to-Speech (TTS) to persisted preference (OFF by default).
-	o.speaker.SetMuted(persisted.VoiceOutputMuted)
+	o.bridge.SetConnectionEnv(persisted.LSAddress, persisted.CSRFToken, persisted.AgentAPIExe)
+
+	if o.conversationID != "" {
+		o.agentState = model.AgentListening
+		o.agentStatusText = "Linked to Antigravity"
+	}
 
 	o.timeline.SetCallback(func(ev model.InteractionEvent) {
 		o.mu.Lock()
@@ -156,130 +166,182 @@ func NewOrchestrator(storageRoot string) *Orchestrator {
 		o.mu.Unlock()
 	})
 
-	o.speaker.SetOnStateChange(func(speaking bool) {
-		o.mu.Lock()
-		if speaking && o.recording {
-			o.agentState = model.AgentSpeaking
-			o.agentStatusText = "Antigravity speaking (speak to interrupt)"
-		} else if !speaking && o.recording && o.agentState == model.AgentSpeaking {
-			o.agentState = model.AgentListening
-			o.agentStatusText = "Listening for director commentary"
-		}
-		o.mu.Unlock()
-		o.broadcastState()
-	})
-
-	o.batcher = batcher.New(func(batch []model.Utterance) {
-		o.dispatchBatchToAntigravity(batch)
-	})
-
-	o.agyCtrl = antigravity.NewController(antigravity.Callbacks{
-		OnStateChange: func(state model.AgentState, statusText string) {
-			o.mu.Lock()
-			o.agentState = state
-			o.agentStatusText = statusText
-			o.mu.Unlock()
-			o.broadcastState()
-		},
-		OnConversationID: func(convID string) {
-			o.mu.Lock()
-			o.conversationID = convID
-			o.mu.Unlock()
-			o.broadcastState()
-		},
-		OnTextDelta: func(delta string) {
-			o.mu.Lock()
-			o.streamingReply += delta
-			o.mu.Unlock()
-			o.broadcastState()
-
-			if !o.speaker.IsMuted() {
-				sentences := o.chunker.Push(delta)
-				for _, s := range sentences {
-					o.speaker.Speak(s)
-				}
-			}
-		},
-		OnAssistantMessage: func(fullText string) {
-			if !o.speaker.IsMuted() {
-				if rem := o.chunker.Flush(); rem != "" {
-					o.speaker.Speak(rem)
-				}
-			} else {
-				o.chunker.Reset()
-			}
-			o.mu.Lock()
-			o.streamingReply = ""
-			steps := o.collectActiveToolsLocked()
-			o.activeToolMap = make(map[string]string)
-			o.activeToolOrder = nil
-			o.mu.Unlock()
-			o.appendChat(model.ChatEntry{
-				ID:        fmt.Sprintf("ai_%d", time.Now().UnixNano()),
-				Role:      "ai",
-				Text:      fullText,
-				ToolSteps: steps,
-				Timestamp: time.Now(),
-			})
-		},
-		OnToolCall: func(toolID, title, status string) {
-			o.mu.Lock()
-			key := toolID
-			if key == "" {
-				key = fmt.Sprintf("step_%d", len(o.activeToolOrder)+1)
-			}
-			label := title
-			if status != "" {
-				label = fmt.Sprintf("%s (%s)", title, status)
-			}
-			if _, exists := o.activeToolMap[key]; !exists {
-				o.activeToolOrder = append(o.activeToolOrder, key)
-			}
-			o.activeToolMap[key] = label
-			o.mu.Unlock()
-			o.broadcastState()
-		},
-		OnPermissionReq: func(req model.PermissionRequest) {
-			o.mu.Lock()
-			cp := req
-			o.pendingApproval = &cp
-			o.agentState = model.AgentAwaitingApproval
-			o.agentStatusText = fmt.Sprintf("Approval needed: %s", req.ToolName)
-			o.mu.Unlock()
-
-			spoken := fmt.Sprintf("Permission requested for %s. Say approve or deny.", req.ToolName)
-			if req.Command != "" {
-				spoken = fmt.Sprintf("Approve running %s? Say approve or deny.", req.Command)
-			}
-			o.speaker.StopImmediate()
-			o.speaker.Speak(spoken)
-			o.broadcastState()
-		},
-		OnError: func(err error) {
-			o.appendChat(model.ChatEntry{
-				ID:        fmt.Sprintf("err_%d", time.Now().UnixNano()),
-				Role:      "system",
-				Text:      "Antigravity notice: " + err.Error(),
-				Timestamp: time.Now(),
-			})
-		},
-	})
-
 	return o
 }
 
-// SetHUDToggleCallback registers a platform window hook when switching between Studio and Compact HUD mode.
-func (o *Orchestrator) SetHUDToggleCallback(fn func(compact bool)) {
+// SetDrawerToggleCallback registers a native window resize hook when opening/closing the companion drawer.
+func (o *Orchestrator) SetDrawerToggleCallback(fn func(expanded bool)) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.onHUDToggle = fn
+	o.onDrawerToggle = fn
 }
 
-// SetRegionCallback registers a platform CaptureBox hook invoked when region/detach/lock state changes.
+// SetRegionCallback registers a platform CaptureBox hook invoked when region/visibility/lock state changes.
 func (o *Orchestrator) SetRegionCallback(fn func(region model.CaptureRegion)) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.onRegionEvent = fn
+}
+
+// SetHotkeysCallback registers a native hook to re-register global OS hotkeys when the user customizes them.
+func (o *Orchestrator) SetHotkeysCallback(fn func(cfg model.HotkeyConfig)) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.onHotkeysChange = fn
+}
+
+// SetHotkeysSuspendCallback registers a native hook to pause global hotkeys while recording a new shortcut.
+func (o *Orchestrator) SetHotkeysSuspendCallback(fn func(suspended bool)) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.onHotkeysSuspend = fn
+}
+
+// UpdateHotkeys validates, persists, and dynamically applies custom global hotkeys.
+func (o *Orchestrator) UpdateHotkeys(cfg model.HotkeyConfig) error {
+	sendHK, err := model.NormalizeHotkeyBinding(cfg.SendTurn)
+	if err != nil {
+		o.mu.Lock()
+		o.lastError = err.Error()
+		o.mu.Unlock()
+		o.broadcastState()
+		return err
+	}
+	discHK, err := model.NormalizeHotkeyBinding(cfg.DiscardTurn)
+	if err != nil {
+		o.mu.Lock()
+		o.lastError = err.Error()
+		o.mu.Unlock()
+		o.broadcastState()
+		return err
+	}
+	if sendHK.KeyCode == discHK.KeyCode && sendHK.Modifiers == discHK.Modifiers {
+		err = fmt.Errorf("Send and Discard hotkeys cannot be identical (%s)", sendHK.Display)
+		o.mu.Lock()
+		o.lastError = err.Error()
+		o.mu.Unlock()
+		o.broadcastState()
+		return err
+	}
+
+	normalized := model.HotkeyConfig{
+		SendTurn:    sendHK,
+		DiscardTurn: discHK,
+	}
+
+	o.mu.Lock()
+	o.hotkeys = normalized
+	o.lastError = ""
+	o.saveConfigLocked()
+	cb := o.onHotkeysChange
+	o.mu.Unlock()
+
+	applog.Info("session", "global hotkeys updated: send=%s discard=%s", sendHK.Display, discHK.Display)
+	if cb != nil {
+		cb(normalized)
+	}
+	o.broadcastState()
+	return nil
+}
+
+// ResetHotkeys restores default global hotkeys (⌥↩ and ⌥⌫).
+func (o *Orchestrator) ResetHotkeys() {
+	_ = o.UpdateHotkeys(model.DefaultHotkeyConfig())
+}
+
+// SetHotkeyRecording temporarily suspends/resumes global OS hotkeys while the user records a shortcut.
+func (o *Orchestrator) SetHotkeyRecording(active bool) {
+	o.mu.RLock()
+	cb := o.onHotkeysSuspend
+	o.mu.RUnlock()
+	if cb != nil {
+		cb(active)
+	}
+}
+
+// BindConversation links XNK Iterate to an existing Google Antigravity conversation ID.
+func (o *Orchestrator) BindConversation(convID string) (antigravity.ConversationMeta, error) {
+	return o.BindConversationWithEnv(convID, "", "", "")
+}
+
+// BindConversationWithEnv links XNK Iterate to an existing Google Antigravity conversation ID
+// and records the Language Server connection environment (ANTIGRAVITY_LS_ADDRESS, ANTIGRAVITY_CSRF_TOKEN,
+// ANTIGRAVITY_AGENTAPI_EXE) supplied by `/xnk-iterate`.
+func (o *Orchestrator) BindConversationWithEnv(convID, lsAddress, csrfToken, agentAPIExe string) (antigravity.ConversationMeta, error) {
+	convID = strings.TrimSpace(convID)
+	if convID == "" {
+		return antigravity.ConversationMeta{}, fmt.Errorf("conversation_id is required")
+	}
+
+	o.mu.Lock()
+	if strings.TrimSpace(lsAddress) != "" {
+		o.lsAddress = strings.TrimSpace(lsAddress)
+	}
+	if strings.TrimSpace(csrfToken) != "" {
+		o.csrfToken = strings.TrimSpace(csrfToken)
+	}
+	if strings.TrimSpace(agentAPIExe) != "" {
+		o.agentAPIExe = strings.TrimSpace(agentAPIExe)
+	}
+	o.bridge.SetConnectionEnv(o.lsAddress, o.csrfToken, o.agentAPIExe)
+	o.mu.Unlock()
+
+	meta, err := o.bridge.VerifyConversation(context.Background(), convID)
+	o.mu.Lock()
+	o.conversationID = convID
+	o.linkedRepo = meta.RepoName
+	o.linkedBranch = meta.BranchName
+	o.linkedWorkspace = meta.WorkspacePath
+	if err != nil {
+		o.lastError = err.Error()
+		o.agentState = model.AgentError
+		o.agentStatusText = "Link error — re-run /xnk-iterate"
+	} else {
+		o.lastError = ""
+		o.agentState = model.AgentListening
+		if meta.RepoName != "" {
+			o.agentStatusText = fmt.Sprintf("Linked: %s", meta.RepoName)
+		} else {
+			o.agentStatusText = fmt.Sprintf("Linked: %s", shortID(convID))
+		}
+	}
+	o.saveConfigLocked()
+	o.mu.Unlock()
+
+	o.broadcastState()
+	return meta, err
+}
+
+// UnbindConversation disconnects from the current Antigravity session.
+func (o *Orchestrator) UnbindConversation() {
+	o.mu.Lock()
+	o.conversationID = ""
+	o.linkedRepo = ""
+	o.linkedBranch = ""
+	o.linkedWorkspace = ""
+	o.agentState = model.AgentIdle
+	o.agentStatusText = "Run /xnk-iterate in Antigravity to link"
+	o.saveConfigLocked()
+	o.mu.Unlock()
+	o.broadcastState()
+}
+
+// UpdateSettings updates conversation ID and silence timeout and persists them.
+func (o *Orchestrator) UpdateSettings(convID string, silenceTimeoutMS int) {
+	convID = strings.TrimSpace(convID)
+	if convID != "" && convID != o.StateSnapshot().ConversationID {
+		_, _ = o.BindConversation(convID)
+	} else if convID == "" {
+		o.UnbindConversation()
+	}
+
+	o.mu.Lock()
+	if silenceTimeoutMS >= 500 {
+		o.silenceTimeoutMS = silenceTimeoutMS
+	}
+	o.saveConfigLocked()
+	o.mu.Unlock()
+	o.broadcastState()
 }
 
 // UpdateRegion updates the capture drag-box geometry unless locked during active recording.
@@ -303,6 +365,7 @@ func (o *Orchestrator) UpdateRegion(r model.CaptureRegion, fromNative bool) {
 		r.Visible = o.region.Visible
 	}
 	o.region = r
+	o.saveConfigLocked()
 	cb := o.onRegionEvent
 	o.mu.Unlock()
 
@@ -312,7 +375,7 @@ func (o *Orchestrator) UpdateRegion(r model.CaptureRegion, fromNative bool) {
 	o.broadcastState()
 }
 
-// ToggleCaptureBoxVisible shows or hides the always-detached native Capture Box overlay.
+// ToggleCaptureBoxVisible shows or hides the detached native Capture Box overlay.
 func (o *Orchestrator) ToggleCaptureBoxVisible() bool {
 	o.mu.Lock()
 	o.region.Visible = !o.region.Visible
@@ -329,65 +392,35 @@ func (o *Orchestrator) ToggleCaptureBoxVisible() bool {
 	return r.Visible
 }
 
-// ToggleDetachCaptureBox keeps the capture box always detached and toggles its visibility when unlocked.
-func (o *Orchestrator) ToggleDetachCaptureBox() bool {
+// SetDrawerOpen expands or collapses the Companion HUD's turns/settings drawer.
+func (o *Orchestrator) SetDrawerOpen(open bool) {
 	o.mu.Lock()
-	if o.recording {
+	if o.drawerOpen == open {
 		o.mu.Unlock()
-		return true
+		return
 	}
-	o.region.Detached = true
-	o.region.Visible = true
-	r := o.region
-	cb := o.onRegionEvent
+	o.drawerOpen = open
+	cb := o.onDrawerToggle
 	o.mu.Unlock()
 
 	if cb != nil {
-		cb(r)
+		cb(open)
 	}
-	o.broadcastState()
-	return true
-}
-
-// UpdateSettings updates workspace, conversation ID, continue flag, and silence timeout and persists them.
-func (o *Orchestrator) UpdateSettings(workspacePath, convID string, continueSession bool, silenceTimeoutMS int) {
-	o.mu.Lock()
-	if strings.TrimSpace(workspacePath) != "" {
-		o.workspacePath = strings.TrimSpace(workspacePath)
-	}
-	o.conversationID = strings.TrimSpace(convID)
-	o.continueSession = continueSession
-	if silenceTimeoutMS >= 500 {
-		o.silenceTimeoutMS = silenceTimeoutMS
-	}
-	o.saveConfigLocked()
-	o.mu.Unlock()
 	o.broadcastState()
 }
 
 func (o *Orchestrator) saveConfigLocked() {
 	reg := o.region
+	hk := o.hotkeys
 	_ = config.Save("", config.AppConfig{
-		WorkspacePath:    o.workspacePath,
 		ConversationID:   o.conversationID,
-		ContinueSession:  o.continueSession,
+		LSAddress:        o.lsAddress,
+		CSRFToken:        o.csrfToken,
+		AgentAPIExe:      o.agentAPIExe,
 		SilenceTimeoutMS: o.silenceTimeoutMS,
-		VoiceOutputMuted: o.speaker.IsMuted(),
 		Region:           &reg,
+		Hotkeys:          &hk,
 	})
-}
-
-func (o *Orchestrator) collectActiveToolsLocked() []string {
-	if len(o.activeToolOrder) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(o.activeToolOrder))
-	for _, k := range o.activeToolOrder {
-		if v, ok := o.activeToolMap[k]; ok {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 // Subscribe returns a channel receiving real-time LiveEvents.
@@ -414,7 +447,6 @@ func (o *Orchestrator) broadcast(ev LiveEvent) {
 		select {
 		case ch <- ev:
 		default:
-			// Drop slow-consumer tick rather than blocking capture pipeline.
 		}
 	}
 }
@@ -433,7 +465,7 @@ func (o *Orchestrator) ListTargets() ([]model.CaptureTarget, error) {
 
 // Permissions returns the current platform permission and binary readiness report.
 func (o *Orchestrator) Permissions() model.PermissionStatus {
-	agyPath, agyOK := antigravity.FindAgyBinary()
+	apiPath, apiOK := antigravity.FindAgentAPIBinary()
 	return model.PermissionStatus{
 		Platform:        runtime.GOOS + "/" + runtime.GOARCH,
 		ScreenRecording: o.capturer.ScreenRecordingStatus(),
@@ -441,19 +473,18 @@ func (o *Orchestrator) Permissions() model.PermissionStatus {
 		Speech:          o.speechEng.SpeechStatus(),
 		Accessibility:   o.tracker.AccessibilityStatus(),
 		FFmpegAvailable: capture.FFmpegAvailable(),
-		AgyAvailable:    agyOK,
-		AgyPath:         agyPath,
+		AgyAvailable:    apiOK,
+		AgyPath:         apiPath,
 	}
 }
 
-// ElapsedSeconds returns the active recording elapsed time excluding paused intervals.
+// ElapsedSeconds returns active recording elapsed time excluding paused intervals.
 func (o *Orchestrator) ElapsedSeconds() float64 {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 	return o.elapsedLocked()
 }
 
-// elapsedLocked computes elapsed seconds; caller MUST hold o.mu (read or write).
 func (o *Orchestrator) elapsedLocked() float64 {
 	if !o.recording {
 		return 0
@@ -469,60 +500,44 @@ func (o *Orchestrator) elapsedLocked() float64 {
 	return d.Seconds()
 }
 
-// StateSnapshot builds a thread-safe view of the current session state for the UI.
+// StateSnapshot builds a thread-safe view of the current companion state for the HUD.
 func (o *Orchestrator) StateSnapshot() model.SessionStateSnapshot {
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 
 	utts := make([]model.Utterance, len(o.utterances))
 	copy(utts, o.utterances)
-	chat := make([]model.ChatEntry, len(o.chatHistory))
-	copy(chat, o.chatHistory)
-
-	var elapsed float64
-	if o.recording {
-		now := time.Now()
-		if o.paused {
-			now = o.pausedAt
-		}
-		d := now.Sub(o.startedAt) - o.pausedAccum
-		if d > 0 {
-			elapsed = d.Seconds()
-		}
-	}
 
 	return model.SessionStateSnapshot{
 		CaptureID:         o.captureID,
 		Recording:         o.recording,
 		Paused:            o.paused,
-		BatchMode:         o.batcher.IsBatchMode(),
-		BatchedCount:      o.batcher.PendingCount(),
-		ElapsedSeconds:    elapsed,
+		ElapsedSeconds:    o.elapsedLocked(),
 		Target:            o.target,
 		Region:            o.region,
-		WorkspacePath:     o.workspacePath,
+		Hotkeys:           o.hotkeys,
 		ConversationID:    o.conversationID,
-		ContinueSession:   o.continueSession,
+		LinkedRepo:        o.linkedRepo,
+		LinkedBranch:      o.linkedBranch,
+		LinkedWorkspace:   o.linkedWorkspace,
 		SilenceTimeoutMS:  o.silenceTimeoutMS,
-		VoiceOutputMuted:  o.speaker.IsMuted(),
 		AgentState:        o.agentState,
 		AgentStatusText:   o.agentStatusText,
-		ActiveTools:       o.collectActiveToolsLocked(),
-		StreamingReply:    o.streamingReply,
+		InjectedCount:     o.injectedCount,
+		LastError:         o.lastError,
 		LiveTranscript:    o.liveTranscript,
 		AudioLevel:        o.audioLevel,
-		PendingApproval:   o.pendingApproval,
 		Utterances:        utts,
-		ChatHistory:       chat,
 		Permissions:       o.Permissions(),
 		LastBundlePath:    o.lastBundlePath,
 		LogFilePath:       applog.Path(),
-		HUDCompactMode:    o.hudCompactMode,
+		DrawerOpen:        o.drawerOpen,
 		RecentInteraction: o.recentInteraction,
 	}
 }
 
-// StartSession begins screen capture, interaction tracking, live speech/VAD, and spawns the owned Antigravity session.
+// StartSession begins screen capture, interaction tracking, and live speech-to-text,
+// locking the Capture Box and streaming utterances directly into the linked Antigravity session.
 func (o *Orchestrator) StartSession(opts StartOptions) error {
 	o.mu.Lock()
 	if o.recording {
@@ -552,9 +567,8 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 		}
 	}
 
-	wsPath := strings.TrimSpace(opts.WorkspacePath)
-	if wsPath == "" {
-		wsPath = o.workspacePath
+	if strings.TrimSpace(opts.ConversationID) != "" {
+		o.conversationID = strings.TrimSpace(opts.ConversationID)
 	}
 
 	capID := fmt.Sprintf("cap_%d", time.Now().Unix())
@@ -568,15 +582,12 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 	o.startedAt = time.Now()
 	o.pausedAccum = 0
 	o.utteranceSeq = 0
+	o.injectedCount = 0
+	o.lastError = ""
 	o.target = selected
-	o.workspacePath = wsPath
-	o.conversationID = opts.ConversationID
-	o.continueSession = opts.ContinueSession
 	o.utterances = nil
 	o.frames = nil
-	o.pendingApproval = nil
 	o.liveTranscript = ""
-	o.streamingReply = ""
 	o.region.Detached = true
 	o.region.Visible = true
 	o.region.Locked = true
@@ -585,21 +596,16 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 	o.sessionCancel = cancel
 	o.ringBuf.Clear()
 	o.timeline.Clear()
-	o.batcher.Clear()
-	o.chunker.Reset()
 	o.mu.Unlock()
 
-	applog.Info("session", "StartSession id=%s target=%s region=(%d,%d %dx%d disp=%d) workspace=%s",
-		capID, selected.Title, lockedRegion.X, lockedRegion.Y, lockedRegion.Width, lockedRegion.Height, lockedRegion.DisplayIndex, wsPath)
+	applog.Info("session", "StartSession id=%s target=%s region=(%d,%d %dx%d disp=%d) conv=%s",
+		capID, selected.Title, lockedRegion.X, lockedRegion.Y, lockedRegion.Width, lockedRegion.Height, lockedRegion.DisplayIndex, o.conversationID)
 
-	// Broadcast recording=true immediately so UI transitions to Stop button right away
 	o.broadcastState()
-
 	if regionCB != nil {
 		regionCB(lockedRegion)
 	}
 
-	// 1. Start Capture (fMP4 + rolling ring buffer cropped to locked CaptureRegion)
 	_ = o.capturer.Start(ctx, capture.Config{
 		Target:     *selected,
 		Region:     &lockedRegion,
@@ -608,73 +614,22 @@ func (o *Orchestrator) StartSession(opts StartOptions) error {
 		FPS:        30,
 		RingBuffer: o.ringBuf,
 		ElapsedFn:  o.ElapsedSeconds,
-		OnLiveFrame: func(ts float64, format string, data []byte) {
-			o.mu.Lock()
-			if time.Since(o.lastLiveFrameAt) < 800*time.Millisecond {
-				o.mu.Unlock()
-				return
-			}
-			o.lastLiveFrameAt = time.Now()
-			o.mu.Unlock()
-
-			mime := "image/jpeg"
-			if format == "png" {
-				mime = "image/png"
-			}
-			o.broadcast(LiveEvent{
-				Type: "live_frame",
-				Payload: map[string]any{
-					"timestamp": ts,
-					"data_url":  "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data),
-				},
-			})
-		},
 	})
-
-	// 2. Start Interaction Tracker
 	_ = o.tracker.Start(o.ElapsedSeconds, o.timeline)
-
-	// 3. Start Native Speech / VAD Engine with configured silence timeout
-	o.mu.RLock()
-	silenceMS := o.silenceTimeoutMS
-	o.mu.RUnlock()
-	_ = o.speechEng.Start(ctx, silenceMS, o.ElapsedSeconds, o.handleSpeechEvent)
-
-	// 4. Spawn Owned Google Antigravity (`agy`) Session
-	err := o.agyCtrl.Start(ctx, antigravity.SessionConfig{
-		WorkspacePath:   wsPath,
-		ConversationID:  opts.ConversationID,
-		ContinueSession: opts.ContinueSession,
-		Model:           opts.Model,
-		Mode:            opts.Mode,
-	})
-	if err != nil {
-		o.appendChat(model.ChatEntry{
-			ID:        fmt.Sprintf("sys_%d", time.Now().UnixNano()),
-			Role:      "system",
-			Text:      fmt.Sprintf("Recording active. Antigravity CLI notice: %v (utterances will still be captured and bundled).", err),
-			Timestamp: time.Now(),
-		})
-	} else {
-		o.appendChat(model.ChatEntry{
-			ID:        fmt.Sprintf("sys_%d", time.Now().UnixNano()),
-			Role:      "system",
-			Text:      fmt.Sprintf("Live Director Session started — capturing %s and streaming to Google Antigravity in %s.", selected.Title, wsPath),
-			Timestamp: time.Now(),
-		})
+	if err := o.speechEng.Start(ctx, o.ElapsedSeconds, o.handleSpeechEvent); err != nil {
+		applog.Error("session", "speech engine start failed: %v", err)
 	}
 
-	o.broadcastState()
 	return nil
 }
 
-// StopSession stops capture, speech, interaction tracking, and Antigravity, then seals the archive bundle.
+// StopSession stops capture, speech, and interaction tracking, unlocks the Capture Box,
+// and seals the archive bundle on disk.
 func (o *Orchestrator) StopSession() (string, error) {
 	o.mu.Lock()
 	if !o.recording {
 		last := o.lastBundlePath
 		o.mu.Unlock()
-		applog.Info("session", "StopSession called while not recording")
 		return last, nil
 	}
 	duration := o.elapsedLocked()
@@ -682,9 +637,7 @@ func (o *Orchestrator) StopSession() (string, error) {
 	o.paused = false
 	o.region.Locked = false
 	o.liveTranscript = ""
-	o.streamingReply = ""
 	o.audioLevel = 0
-	o.pendingApproval = nil
 	unlockedRegion := o.region
 	regionCB := o.onRegionEvent
 	cancel := o.sessionCancel
@@ -694,7 +647,7 @@ func (o *Orchestrator) StopSession() (string, error) {
 		CaptureID:       o.captureID,
 		CreatedAt:       o.startedAt,
 		DurationSeconds: duration,
-		WorkspacePath:   o.workspacePath,
+		WorkspacePath:   o.linkedWorkspace,
 		ConversationID:  o.conversationID,
 		VideoFile:       "recording.mp4",
 		Utterances:      append([]model.Utterance(nil), o.utterances...),
@@ -709,48 +662,33 @@ func (o *Orchestrator) StopSession() (string, error) {
 
 	applog.Info("session", "StopSession triggered (id=%s duration=%.1fs)", manifest.CaptureID, duration)
 
-	// Immediately unlock Capture Box and notify UI so the Stop button responds instantaneously!
 	if regionCB != nil {
 		regionCB(unlockedRegion)
 	}
 	o.broadcastState()
 
-	// Shut down all child subsystems non-blockingly with telemetry
-	o.batcher.Clear()
-	o.speaker.StopImmediate()
 	if cancel != nil {
 		cancel()
 	}
-	if err := o.speechEng.Stop(); err != nil {
-		applog.Warn("session", "speech stop warning: %v", err)
-	}
+	_ = o.speechEng.Stop()
 	o.tracker.Stop()
-	if err := o.capturer.Stop(); err != nil {
-		applog.Warn("session", "capturer stop warning: %v", err)
-	}
-	o.agyCtrl.Stop()
+	_ = o.capturer.Stop()
 
 	exportedPath, err := bundle.Export(bDir, manifest)
 	if err != nil {
 		applog.Error("session", "bundle export failed: %v", err)
 	} else {
-		applog.Info("session", "bundle exported cleanly to %s", exportedPath)
+		applog.Info("session", "bundle exported to %s", exportedPath)
 		o.mu.Lock()
 		o.lastBundlePath = exportedPath
 		o.mu.Unlock()
-		o.appendChat(model.ChatEntry{
-			ID:        fmt.Sprintf("sys_%d", time.Now().UnixNano()),
-			Role:      "system",
-			Text:      fmt.Sprintf("Session stopped & archived to %s", exportedPath),
-			Timestamp: time.Now(),
-		})
 	}
 
 	o.broadcastState()
 	return exportedPath, err
 }
 
-// TogglePause pauses or resumes recording and speech dispatch.
+// TogglePause pauses or resumes recording and utterance dispatch.
 func (o *Orchestrator) TogglePause() bool {
 	o.mu.Lock()
 	if !o.recording {
@@ -766,92 +704,53 @@ func (o *Orchestrator) TogglePause() bool {
 	}
 	paused := o.paused
 	o.mu.Unlock()
-
-	if paused {
-		o.speaker.StopImmediate()
-	}
 	o.broadcastState()
 	return paused
 }
 
-// ToggleBatchMode toggles Batch-Hold mode (`⌥ + B`). Disabling flushes pending utterances.
-func (o *Orchestrator) ToggleBatchMode() bool {
-	next := o.batcher.ToggleBatchMode()
-	o.broadcastState()
-	return next
-}
+// SendCurrentTurn flushes the accumulated voice buffer into Antigravity (triggered by global hotkey or Send button).
+func (o *Orchestrator) SendCurrentTurn() {
+	o.mu.RLock()
+	draft := strings.TrimSpace(o.liveTranscript)
+	seqBefore := o.utteranceSeq
+	recording := o.recording
+	o.mu.RUnlock()
 
-// FlushBatch dispatches buffered utterances immediately.
-func (o *Orchestrator) FlushBatch() int {
-	n := o.batcher.Flush()
-	o.broadcastState()
-	return n
-}
-
-// DiscardLastUtterance purges the most recent utterance (removing from pending batch if buffered).
-func (o *Orchestrator) DiscardLastUtterance() bool {
-	o.batcher.DiscardLastPending()
-	o.mu.Lock()
-	defer func() {
-		o.mu.Unlock()
-		o.broadcastState()
-	}()
-	for i := len(o.utterances) - 1; i >= 0; i-- {
-		if !o.utterances[i].Discarded {
-			o.utterances[i].Discarded = true
-			return true
-		}
+	applog.Info("session", "SendCurrentTurn triggered (recording=%v draft_len=%d)", recording, len(draft))
+	if err := o.speechEng.FlushTurn(); err != nil {
+		applog.Warn("session", "speechEng.FlushTurn error: %v", err)
 	}
-	return false
+
+	// Safety fallback: if the HUD already had buffered speech text and the native helper
+	// doesn't emit a final event within 250ms, submit the buffered draft directly so no turn is lost.
+	if draft != "" {
+		go func(expectedSeq int, fallbackText string) {
+			time.Sleep(250 * time.Millisecond)
+			o.mu.RLock()
+			stillPending := o.utteranceSeq == expectedSeq && strings.TrimSpace(o.liveTranscript) != ""
+			o.mu.RUnlock()
+			if stillPending {
+				applog.Info("session", "SendCurrentTurn fallback submitting buffered draft (%d chars)", len(fallbackText))
+				o.SubmitUtterance(fallbackText, 0.9)
+			}
+		}(seqBefore, draft)
+	}
 }
 
-// ToggleVoiceMute mutes or unmutes Antigravity spoken TTS responses and persists the preference.
-func (o *Orchestrator) ToggleVoiceMute() bool {
-	next := !o.speaker.IsMuted()
-	o.speaker.SetMuted(next)
+// DiscardCurrentTurn clears the currently buffered voice transcript without sending (triggered by global hotkey or Discard button).
+func (o *Orchestrator) DiscardCurrentTurn() {
+	applog.Info("session", "DiscardCurrentTurn triggered (hotkey/button)")
+	if err := o.speechEng.DiscardTurn(); err != nil {
+		applog.Warn("session", "speechEng.DiscardTurn error: %v", err)
+	}
 	o.mu.Lock()
-	o.saveConfigLocked()
+	o.liveTranscript = ""
+	o.speechStartedAt = 0
 	o.mu.Unlock()
 	o.broadcastState()
-	return next
 }
 
-// ToggleHUDCompactMode switches between full Director Studio and Compact Floating HUD.
-func (o *Orchestrator) ToggleHUDCompactMode() bool {
-	o.mu.Lock()
-	o.hudCompactMode = !o.hudCompactMode
-	compact := o.hudCompactMode
-	cb := o.onHUDToggle
-	o.mu.Unlock()
-
-	if cb != nil {
-		cb(compact)
-	}
-	o.broadcastState()
-	return compact
-}
-
-// ResolveApproval sends a user approve/deny (or specific ACP optionId) decision to the pending Antigravity permission request.
-func (o *Orchestrator) ResolveApproval(requestID string, optionID string, decision antigravity.ApprovalDecision) error {
-	o.mu.Lock()
-	pending := o.pendingApproval
-	if pending != nil && (requestID == "" || pending.ID == requestID) {
-		requestID = pending.ID
-		o.pendingApproval = nil
-	}
-	o.mu.Unlock()
-
-	o.speaker.StopImmediate()
-	if requestID == "" {
-		o.broadcastState()
-		return nil
-	}
-	err := o.agyCtrl.ResolvePermission(requestID, optionID, decision)
-	o.broadcastState()
-	return err
-}
-
-// SubmitUtterance allows injecting a finalized director utterance (from native STT, Web Speech API, or manual input).
+// SubmitUtterance accepts a finalized utterance (from native STT, Web Speech API, or manual input).
 func (o *Orchestrator) SubmitUtterance(text string, confidence float32) {
 	o.submitUtteranceWithOffset(text, confidence, 0)
 }
@@ -862,29 +761,19 @@ func (o *Orchestrator) submitUtteranceWithOffset(text string, confidence float32
 		return
 	}
 
-	// If a permission approval is pending, check for voice approval intent first!
 	o.mu.RLock()
-	pending := o.pendingApproval
 	paused := o.paused
 	recording := o.recording
 	o.mu.RUnlock()
-
-	if pending != nil {
-		if decision := antigravity.ParseVoiceApprovalIntent(text); decision != antigravity.DecisionNone {
-			_ = o.ResolveApproval(pending.ID, "", decision)
-			return
-		}
-	}
-
 	if paused {
 		return
 	}
 
-	// Anchor speechEnd to when the user actually finished speaking (subtracting silence debounce wait!)
 	nowTS := o.ElapsedSeconds() - silenceOffsetSec
 	if nowTS < 0 {
 		nowTS = 0
 	}
+
 	o.mu.Lock()
 	speechStart := o.speechStartedAt
 	if speechStart <= 0 || speechStart > nowTS {
@@ -921,16 +810,15 @@ func (o *Orchestrator) submitUtteranceWithOffset(text string, confidence float32
 		TriggerFramePath:  trigPath,
 		ReactionFramePath: reactPath,
 		CarouselPaths:     carouselPaths,
+		Dispatched:        true,
 	}
-
-	dispatched := o.batcher.Submit(utt)
-	utt.Dispatched = dispatched
 
 	o.mu.Lock()
 	o.utterances = append(o.utterances, utt)
 	o.frames = append(o.frames, snaps...)
 	o.mu.Unlock()
 
+	o.dispatchBatchToAntigravity([]model.Utterance{utt})
 	o.broadcastState()
 }
 
@@ -944,28 +832,34 @@ func (o *Orchestrator) handleSpeechEvent(ev speech.Event) {
 			Type:    "audio_level",
 			Payload: map[string]any{"level": ev.Level},
 		})
-
 	case speech.EventVADStart:
-		// Hardware AEC barge-in: immediately interrupt agent TTS playback!
-		if o.speaker.IsSpeaking() {
-			o.speaker.StopImmediate()
-		}
 		o.mu.Lock()
 		o.speechStartedAt = ev.Timestamp
 		o.mu.Unlock()
-
+		applog.Info("speech", "vad_start at %.2fs", ev.Timestamp)
 	case speech.EventPartial:
 		o.mu.Lock()
+		wasEmpty := o.liveTranscript == ""
 		o.liveTranscript = ev.Text
 		o.mu.Unlock()
+		if wasEmpty && ev.Text != "" {
+			applog.Info("speech", "first partial transcript received (%d chars)", len(ev.Text))
+		}
 		o.broadcastState()
-
 	case speech.EventFinal:
+		applog.Info("speech", "final transcript received (%d chars, silence_offset=%.2fs)", len(ev.Text), ev.SilenceOffset)
 		o.submitUtteranceWithOffset(ev.Text, ev.Confidence, ev.SilenceOffset)
-
 	case speech.EventVADEnd:
 		o.mu.Lock()
 		o.liveTranscript = ""
+		o.mu.Unlock()
+		o.broadcastState()
+	case speech.EventStatus:
+		applog.Info("speech", "status: %s", ev.Message)
+	case speech.EventError:
+		applog.Error("speech", "error: %s", ev.Message)
+		o.mu.Lock()
+		o.lastError = "Speech: " + ev.Message
 		o.mu.Unlock()
 		o.broadcastState()
 	}
@@ -975,56 +869,47 @@ func (o *Orchestrator) dispatchBatchToAntigravity(batch []model.Utterance) {
 	if len(batch) == 0 {
 		return
 	}
-
-	var combinedText []string
-	var framePaths []string
-	for _, u := range batch {
-		combinedText = append(combinedText, u.Transcript)
-		if u.TriggerFramePath != "" {
-			framePaths = append(framePaths, u.TriggerFramePath)
-		}
-		if u.ReactionFramePath != "" && u.ReactionFramePath != u.TriggerFramePath {
-			framePaths = append(framePaths, u.ReactionFramePath)
-		}
-	}
-
-	o.appendChat(model.ChatEntry{
-		ID:         fmt.Sprintf("usr_%d", time.Now().UnixNano()),
-		Role:       "user",
-		Text:       strings.Join(combinedText, " "),
-		FramePaths: framePaths,
-		Timestamp:  time.Now(),
-	})
-
 	o.mu.RLock()
+	convID := o.conversationID
 	target := o.target
 	o.mu.RUnlock()
 
-	if o.agyCtrl.IsRunning() {
-		if err := o.agyCtrl.SendUtterances(batch, target); err != nil {
-			o.appendChat(model.ChatEntry{
-				ID:        fmt.Sprintf("err_%d", time.Now().UnixNano()),
-				Role:      "system",
-				Text:      "Failed to dispatch to Antigravity: " + err.Error(),
-				Timestamp: time.Now(),
-			})
-		}
+	if convID == "" {
+		applog.Warn("session", "utterance recorded without linked Antigravity conversation (saved to bundle only)")
+		return
 	}
+
+	go func() {
+		err := o.bridge.SendUtterances(context.Background(), convID, batch, target)
+		o.mu.Lock()
+		if err != nil {
+			o.lastError = err.Error()
+			o.agentState = model.AgentError
+			o.agentStatusText = "Injection error — check Settings/Logs"
+		} else {
+			o.lastError = ""
+			o.injectedCount += len(batch)
+			o.agentState = model.AgentListening
+			if o.linkedRepo != "" {
+				o.agentStatusText = fmt.Sprintf("Linked: %s (%d sent)", o.linkedRepo, o.injectedCount)
+			} else {
+				o.agentStatusText = fmt.Sprintf("Linked: %s (%d sent)", shortID(convID), o.injectedCount)
+			}
+		}
+		o.mu.Unlock()
+		o.broadcastState()
+	}()
 }
 
-func (o *Orchestrator) appendChat(entry model.ChatEntry) {
-	o.mu.Lock()
-	o.chatHistory = append(o.chatHistory, entry)
-	if len(o.chatHistory) > 200 {
-		o.chatHistory = o.chatHistory[len(o.chatHistory)-200:]
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
 	}
-	o.mu.Unlock()
-	o.broadcastState()
+	return id
 }
 
 // --- mcp.Provider implementation ---
 
-// GrabFrame extracts a frame on demand from the active ring buffer for Antigravity's MCP tool.
 func (o *Orchestrator) GrabFrame(ts *float64) (string, float64, error) {
 	var f ringbuffer.Frame
 	var ok bool
@@ -1059,7 +944,6 @@ func (o *Orchestrator) GrabFrame(ts *float64) (string, float64, error) {
 	return outPath, f.Timestamp, nil
 }
 
-// GetClip slices a sub-clip from the active recording.mp4 using ffmpeg.
 func (o *Orchestrator) GetClip(startSec, endSec float64) (string, error) {
 	if !capture.FFmpegAvailable() {
 		return "", fmt.Errorf("ffmpeg is not available")
@@ -1086,7 +970,6 @@ func (o *Orchestrator) GetClip(startSec, endSec float64) (string, error) {
 	return clipPath, nil
 }
 
-// SessionStatus returns a compact status map for the xnk_session_status MCP tool.
 func (o *Orchestrator) SessionStatus() map[string]any {
 	st := o.StateSnapshot()
 	return map[string]any{
@@ -1095,13 +978,11 @@ func (o *Orchestrator) SessionStatus() map[string]any {
 		"paused":          st.Paused,
 		"batch_mode":      st.BatchMode,
 		"elapsed_seconds": st.ElapsedSeconds,
-		"agent_state":     st.AgentState,
+		"conversation_id": st.ConversationID,
 		"utterance_count": len(st.Utterances),
-		"workspace_path":  st.WorkspacePath,
 	}
 }
 
-// StorageRoot returns the root directory where recordings are stored.
 func (o *Orchestrator) StorageRoot() string {
 	return o.storageRoot
 }

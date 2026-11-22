@@ -3,275 +3,145 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>XNK Iterate — Voice + Vision Antigravity Director</title>
+  <title>XNK Iterate — Antigravity Capture Companion</title>
   <link rel="icon" type="image/png" href="/icon.png" />
   <link rel="stylesheet" href="/xnk/xnk.css" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body class="xnk-root" data-theme="xnk">
+  <div class="companion-shell">
 
-  <!-- ==================== COMPACT FLOATING HUD VIEW ==================== -->
-  <div id="hud-shell" class="hud-shell hidden">
-    <div class="hud-bar xnk-chassis">
+    <!-- ==================== COMPACT FLOATING HUD BAR ==================== -->
+    <header class="hud-bar xnk-chassis">
       <span class="xnk-chassis-corner tl"></span>
       <span class="xnk-chassis-corner tr"></span>
       <span class="xnk-chassis-corner bl"></span>
       <span class="xnk-chassis-corner br"></span>
 
-      <div class="hud-segment hud-rec">
-        <span id="hud-rec-dot" class="rec-dot"></span>
-        <span id="hud-rec-label" class="hud-mono">STANDBY</span>
+      <!-- Left: Brand + REC Timer + Start/Stop/Pause -->
+      <div class="hud-group">
+        <span class="brand-mark">XNK</span>
+        <span id="rec-dot" class="rec-dot"></span>
         <span id="hud-timer" class="hud-timer">00:00</span>
-      </div>
 
-      <div class="hud-divider"></div>
-
-      <div class="hud-segment hud-wave">
-        <canvas id="hud-waveform" width="76" height="22"></canvas>
-      </div>
-
-      <div class="hud-divider"></div>
-
-      <div class="hud-segment hud-transcript-wrap">
-        <span id="hud-batch-pill" class="xnk-badge xnk-badge-amber xnk-badge-pill hidden">BATCH 0</span>
-        <span id="hud-transcript" class="hud-transcript">Listening for director commentary…</span>
-      </div>
-
-      <div class="hud-divider"></div>
-
-      <div class="hud-segment hud-agy-pill">
-        <span class="xnk-orb-avatar"></span>
-        <span id="hud-agy-status" class="hud-agy-text">AGY: Ready</span>
-      </div>
-
-      <div class="hud-controls">
-        <button id="hud-batch-btn" class="xnk-btn xnk-btn-secondary xnk-btn-sm" title="Hold / Batch Thought (⌥B)">Batch</button>
-        <button id="hud-pause-btn" class="xnk-btn xnk-btn-secondary xnk-btn-sm" title="Pause / Resume (Space)">⏸</button>
-        <button id="hud-stop-btn" class="xnk-btn xnk-btn-danger xnk-btn-sm" title="Stop &amp; Export (Esc)">⏹</button>
-        <button id="hud-expand-btn" class="xnk-btn xnk-btn-secondary xnk-btn-sm" title="Expand to Chat Window">⤢</button>
-      </div>
-    </div>
-
-    <div id="hud-approval-strip" class="hud-approval xnk-callout xnk-callout-warning hidden">
-      <div class="hud-approval-row">
-        <div>
-          <span class="xnk-callout-title">⚡ Permission Requested</span>
-          <span id="hud-approval-text" class="hud-approval-cmd"></span>
-        </div>
-        <div class="hud-approval-actions">
-          <span class="hud-hint">Say “Approve” or “Deny”</span>
-          <button id="hud-approve-btn" class="xnk-btn xnk-btn-cobalt xnk-btn-sm">Approve <span class="xnk-kbd">⌘Y</span></button>
-          <button id="hud-deny-btn" class="xnk-btn xnk-btn-danger xnk-btn-sm">Deny <span class="xnk-kbd">⌘N</span></button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ==================== WIDE LANDSCAPE CHAT CONTROL PLANE ==================== -->
-  <div id="studio-shell" class="studio-shell">
-
-    <!-- Top Control Plane Chrome -->
-    <header class="topbar">
-      <div class="topbar-left">
-        <div class="brand">
-          <span class="brand-mark">XNK</span>
-          <span class="brand-name">ITERATE</span>
-        </div>
-
-        <div class="topbar-sep"></div>
-
-        <!-- Detached Capture Frame Telemetry + Show/Hide -->
-        <div class="capture-chip">
-          <span id="frame-status-dot" class="frame-dot"></span>
-          <span id="region-readout" class="region-readout">1280 × 720 · Display 1</span>
-          <button id="btn-toggle-frame" class="link-btn" type="button" title="Show or hide the detached Capture Box window">Hide Frame</button>
-        </div>
-      </div>
-
-      <!-- Center: Live Session Transport Controls -->
-      <div class="topbar-controls">
-        <button id="btn-start" class="xnk-btn xnk-btn-cobalt xnk-btn-sm" type="button">⏺ Start Live Session</button>
+        <button id="btn-start" class="xnk-btn xnk-btn-cobalt xnk-btn-sm" type="button">⏺ Start</button>
         <button id="btn-stop" class="xnk-btn xnk-btn-danger xnk-btn-sm hidden" type="button">⏹ Stop</button>
         <button id="btn-pause" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" disabled title="Pause / Resume (Space)">⏸</button>
-        <button id="btn-batch" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Hold &amp; Batch multiple sentences (⌥B)">Batch <span class="xnk-kbd">⌥B</span></button>
-        <button id="btn-flush-batch" class="xnk-btn xnk-btn-cobalt xnk-btn-sm hidden" type="button">Send Batch</button>
-        <button id="btn-discard" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Discard last utterance">🗑</button>
-        <span id="top-timer" class="topbar-timer">00:00</span>
       </div>
 
-      <!-- Right: AI TTS Toggle, Settings/Logs, Compact HUD -->
-      <div class="topbar-right">
-        <button id="btn-mute-voice" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Toggle AI Text-to-Speech spoken replies">🔇 AI Voice: OFF</button>
-        <button id="btn-settings" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Workspace, Session, Permissions &amp; Logs">⚙ Settings</button>
-        <button id="btn-compact-hud" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Switch to Compact Floating HUD">◱ HUD</button>
+      <div class="hud-sep"></div>
+
+      <!-- Center: Live Waveform + Real-Time Transcript Ribbon -->
+      <div class="hud-voice">
+        <canvas id="hud-waveform" width="76" height="22"></canvas>
+        <span id="live-transcript" class="hud-transcript">Ready — press Start, speak, then ⌥↩ to send</span>
+      </div>
+
+      <div class="hud-sep"></div>
+
+      <!-- Right: Explicit Send, Discard, Antigravity Link Status, Frame, Drawer -->
+      <div class="hud-group">
+        <button id="btn-send-turn" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Finalize &amp; Send Turn to Antigravity">Send <span id="send-kbd" class="xnk-kbd">⌥↩</span></button>
+        <button id="btn-discard" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Discard buffered transcript (Global ⌥⌫)">🗑</button>
+
+        <button id="btn-link-status" class="link-pill is-unlinked" type="button" title="Antigravity session link status — click to configure">
+          <span class="xnk-orb-avatar"></span>
+          <span id="link-pill-text">Link AGY</span>
+        </button>
+
+        <button id="btn-toggle-frame" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Show or hide detached Capture Box">Frame</button>
+        <button id="btn-turns" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Inspect captured turns &amp; frames">Turns (<span id="utt-count">0</span>)</button>
+        <button id="btn-settings" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button" title="Settings &amp; Diagnostic Logs">⚙</button>
       </div>
     </header>
 
-    <!-- Sub-Bar: Antigravity Session Status, Workspace Pill & View Tabs -->
-    <div class="session-subbar">
-      <div class="subbar-inner">
-        <div class="subbar-left">
-          <span class="xnk-orb-avatar"></span>
-          <span id="top-agy-badge" class="xnk-badge xnk-badge-cyan xnk-badge-pill">AGY: IDLE</span>
-          <span id="agent-status-sub" class="agy-sub">Ready — position the detached cyan Capture Box anywhere across your monitors</span>
+    <!-- ==================== EXPANDABLE DRAWER (TURNS / SETTINGS) ==================== -->
+    <section id="drawer" class="drawer hidden">
+      <div class="drawer-head">
+        <div class="drawer-tabs">
+          <button id="tab-turns" class="tab-btn is-active" type="button">Captured Turns (<span id="utt-count-tab">0</span>)</button>
+          <button id="tab-settings" class="tab-btn" type="button">Antigravity Link &amp; Settings</button>
         </div>
-
-        <div class="subbar-right">
-          <span id="batch-status-badge" class="xnk-badge xnk-badge-live xnk-badge-pill">AUTO-STREAM</span>
-          <button id="workspace-pill-btn" class="workspace-pill" type="button" title="Click to configure workspace or Antigravity session">
-            <span id="sidebar-workspace-path" class="workspace-path">📁 —</span>
-            <span id="sidebar-thread-badge" class="xnk-badge xnk-badge-cyan">--continue</span>
-          </button>
-          <div class="tab-switch">
-            <button id="tab-chat" class="tab-btn is-active" type="button">Live Chat</button>
-            <button id="tab-timeline" class="tab-btn" type="button">Turns (<span id="utt-count">0</span>)</button>
-          </div>
+        <div class="drawer-meta">
+          <span id="region-readout" class="region-meta">1280 × 720 · Display 1</span>
+          <button id="btn-close-drawer" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button">▲ Collapse</button>
         </div>
       </div>
-    </div>
 
-    <!-- Main Wide Landscape Chat Column -->
-    <main class="chat-stage">
-      <div class="chat-column">
+      <!-- TAB 1: Captured Utterances & Frames -->
+      <div id="panel-turns" class="drawer-body">
+        <div id="error-banner" class="xnk-alert xnk-alert-error hidden">
+          <span id="error-banner-text"></span>
+        </div>
+        <div id="bundle-banner" class="xnk-alert xnk-alert-success hidden">
+          <span id="bundle-banner-text"></span>
+        </div>
 
-        <!-- Voice Permission Approval Callout (Dynamic ACP Options) -->
-        <div id="studio-approval-box" class="xnk-callout xnk-callout-warning hidden">
-          <div id="studio-approval-title" class="xnk-callout-title">⚡ Antigravity Permission Request — Say “Approve” or “Deny”</div>
-          <p id="studio-approval-desc" class="xnk-callout-body approval-cmd"></p>
-          <div id="studio-approval-actions" class="approval-actions">
-            <button id="studio-approve-btn" class="xnk-btn xnk-btn-cobalt xnk-btn-sm" type="button">✓ Approve <span class="xnk-kbd">⌘Y</span></button>
-            <button id="studio-deny-btn" class="xnk-btn xnk-btn-danger xnk-btn-sm" type="button">✕ Deny <span class="xnk-kbd">⌘N</span></button>
+        <div id="utterance-list" class="utterance-list">
+          <div class="xnk-empty-state">
+            <strong>Partner Mode Ready.</strong><br />
+            Run <code>/xnk-iterate</code> in your active Google Antigravity conversation to link, position the detached cyan Capture Box, press <strong>Start</strong>, and talk naturally.
           </div>
         </div>
 
-        <!-- Exported Bundle Toast -->
-        <div id="last-bundle-banner" class="xnk-alert xnk-alert-success hidden">
-          <span id="last-bundle-text"></span>
-        </div>
-
-        <!-- TAB 1: Wide Live Chat Feed -->
-        <div id="panel-chat" class="panel-scroll">
-          <div id="chat-stream" class="xnk-chat-stream">
-            <div class="xnk-empty-state">
-              <strong>Ready for live Voice + Vision direction.</strong><br />
-              Drag the detached cyan Capture Box over any app on any monitor, press <strong>Start Live Session</strong>, and talk naturally — Antigravity will reply right here.
-            </div>
-          </div>
-
-          <!-- Live Streaming AI Reply Bubble -->
-          <div id="streaming-bubble" class="xnk-chat-msg is-ai hidden">
-            <div class="xnk-chat-msg-header">
-              <span class="xnk-chat-msg-role"><span class="xnk-orb-avatar"></span> Antigravity (Streaming…)</span>
-            </div>
-            <div id="streaming-bubble-text" class="xnk-prose"></div>
-          </div>
-
-          <!-- Compact Live Tool Activity Pill (Zero Chat Spam) -->
-          <div id="active-tools-pill" class="active-tools-pill hidden">
-            <span class="xnk-thinking-dots"><span></span><span></span><span></span></span>
-            <span id="active-tools-text">Working…</span>
-          </div>
-
-          <!-- Thinking Indicator -->
-          <div id="thinking-indicator" class="xnk-chat-msg is-ai is-thinking hidden">
-            <div class="xnk-chat-msg-header">
-              <span class="xnk-chat-msg-role"><span class="xnk-orb-avatar"></span> Antigravity</span>
-            </div>
-            <div class="xnk-thinking-dots"><span></span><span></span><span></span></div>
-          </div>
-        </div>
-
-        <!-- TAB 2: Utterance & Lookback Timeline -->
-        <div id="panel-timeline" class="panel-scroll hidden">
-          <div id="utterance-list" class="utterance-list">
-            <div class="xnk-empty-state">No director utterances recorded yet.</div>
-          </div>
-        </div>
-
-      </div>
-    </main>
-
-    <!-- Bottom Docked Voice Telemetry + Chat Composer -->
-    <footer class="composer-dock">
-      <div class="composer-inner">
-        <div class="live-voice-strip">
-          <canvas id="studio-waveform" width="96" height="22"></canvas>
-          <span id="live-transcript-box" class="live-ribbon-text">🎙 Listening for director commentary…</span>
-          <button id="btn-web-mic" class="link-btn" type="button" title="Toggle Browser Web Speech Fallback">Browser STT</button>
-        </div>
-
-        <form id="manual-form" class="composer">
-          <input id="manual-input" class="xnk-input" type="text" placeholder="Message Antigravity or speak aloud while a live session is running…" autocomplete="off" />
-          <button type="submit" class="xnk-btn xnk-btn-cobalt">Send</button>
+        <form id="manual-form" class="manual-row">
+          <input id="manual-input" class="xnk-input" type="text" placeholder="Type a quick director note to inject with Trigger &amp; Reaction frames…" autocomplete="off" />
+          <button type="button" id="btn-web-mic" class="xnk-btn xnk-btn-secondary xnk-btn-sm">Browser STT</button>
+          <button type="submit" class="xnk-btn xnk-btn-cobalt xnk-btn-sm">Inject</button>
         </form>
       </div>
-    </footer>
+
+      <!-- TAB 2: Antigravity Link, Silence Pause & Diagnostic Logs -->
+      <div id="panel-settings" class="drawer-body hidden">
+        <div class="settings-grid">
+          <div class="settings-col">
+            <div class="field-group">
+              <label class="field-label" for="conv-id-input">Linked Antigravity Conversation ID</label>
+              <div class="inline-row">
+                <input id="conv-id-input" class="xnk-input" type="text" placeholder="Run /xnk-iterate in Antigravity or paste ID…" />
+                <button id="btn-bind-conv" class="xnk-btn xnk-btn-cobalt xnk-btn-sm" type="button">Link</button>
+                <button id="btn-unbind-conv" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button">Unlink</button>
+              </div>
+              <span class="field-hint">Tip: Type <code>/xnk-iterate</code> in any active Antigravity chat to bind automatically over <code>127.0.0.1:9292</code>.</span>
+            </div>
+
+            <div class="field-group">
+              <div class="log-head">
+                <span class="field-label">Global Hotkeys (Work From Any App)</span>
+                <button id="btn-reset-hotkeys" class="link-btn" type="button">Reset Defaults</button>
+              </div>
+              <div class="hotkey-list">
+                <div class="hotkey-row">
+                  <span class="hotkey-name">Send Turn &amp; Frames</span>
+                  <button id="hk-send-btn" class="hotkey-recorder" type="button" data-hk-target="send_turn" title="Click, then press your desired shortcut">⌥↩</button>
+                </div>
+                <div class="hotkey-row">
+                  <span class="hotkey-name">Discard Buffered Voice</span>
+                  <button id="hk-discard-btn" class="hotkey-recorder" type="button" data-hk-target="discard_turn" title="Click, then press your desired shortcut">⌥⌫</button>
+                </div>
+              </div>
+              <span id="hotkey-hint" class="field-hint">Click a shortcut to rebind (requires ⌘/⌥/⌃ + key, or F1–F12; Esc cancels).</span>
+            </div>
+
+            <div class="field-group">
+              <span class="field-label">System &amp; Permission Readiness (<span id="top-platform">—</span>)</span>
+              <div id="perm-pills" class="perm-pills"></div>
+            </div>
+          </div>
+
+          <div class="settings-col">
+            <div class="log-head">
+              <span class="field-label">Diagnostic Log: <code id="log-file-path">—</code></span>
+              <button id="btn-refresh-logs" class="link-btn" type="button">↻ Refresh</button>
+            </div>
+            <pre id="log-tail-box" class="log-tail-box">Loading logs…</pre>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <!-- ==================== SETTINGS & DIAGNOSTIC LOGS MODAL ==================== -->
-  <div id="settings-modal" class="frame-modal hidden">
-    <div class="settings-card xnk-chassis">
-      <span class="xnk-chassis-corner tl"></span>
-      <span class="xnk-chassis-corner tr"></span>
-      <span class="xnk-chassis-corner bl"></span>
-      <span class="xnk-chassis-corner br"></span>
-
-      <div class="frame-modal-head">
-        <span class="hud-mono">⚙ XNK ITERATE — SETTINGS &amp; DIAGNOSTIC LOGS</span>
-        <button id="settings-close-btn" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button">✕ Close</button>
-      </div>
-
-      <div class="settings-section">
-        <label class="field-label" for="workspace-input">Antigravity Workspace Directory</label>
-        <div class="folder-picker-row">
-          <input id="workspace-input" class="xnk-input" type="text" placeholder="/path/to/your/project" />
-          <button id="btn-browse-folder" class="xnk-btn xnk-btn-secondary xnk-btn-sm" type="button">📂 Browse…</button>
-        </div>
-      </div>
-
-      <div class="settings-row-2">
-        <div class="settings-section">
-          <label class="field-label" for="conv-id-input">Conversation ID (Optional)</label>
-          <input id="conv-id-input" class="xnk-input" type="text" placeholder="Auto or resume ID" />
-        </div>
-        <div class="settings-section">
-          <label class="field-label" for="silence-select">Auto-Send Pause (Silence Wait)</label>
-          <select id="silence-select" class="xnk-select">
-            <option value="1200">1.2 seconds (Snappy)</option>
-            <option value="1800" selected>1.8 seconds (Balanced — Default)</option>
-            <option value="2500">2.5 seconds (Relaxed)</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="settings-section">
-        <label class="toggle-label">
-          <input id="continue-checkbox" type="checkbox" checked />
-          <span>Resume latest thread (<code>--continue</code>)</span>
-        </label>
-      </div>
-
-      <div class="settings-section">
-        <span class="field-label">System &amp; Permission Readiness (<span id="top-platform">—</span>)</span>
-        <div id="perm-pills" class="perm-pills"></div>
-      </div>
-
-      <!-- Diagnostic Log Tail Viewer -->
-      <div class="settings-section">
-        <div class="log-head-row">
-          <span class="field-label">Diagnostic Log File: <code id="log-file-path">—</code></span>
-          <button id="btn-refresh-logs" class="link-btn" type="button">↻ Refresh Logs</button>
-        </div>
-        <pre id="log-tail-box" class="log-tail-box">Loading diagnostic logs…</pre>
-      </div>
-
-      <div class="settings-footer">
-        <button id="settings-save-btn" class="xnk-btn xnk-btn-cobalt xnk-btn-sm" type="button">Save Settings</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Frame Lightbox Modal -->
+  <!-- Frame Lightbox -->
   <div id="frame-modal" class="frame-modal hidden">
     <div class="frame-modal-card xnk-chassis">
       <div class="frame-modal-head">

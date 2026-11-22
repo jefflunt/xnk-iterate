@@ -2,9 +2,58 @@
   let ws = null;
   let state = null;
   let audioLevel = 0;
-  let waveformHistory = new Array(20).fill(0.08);
+  let waveformHistory = new Array(16).fill(0.08);
+  let activeDrawerTab = "turns";
   let webSpeech = null;
   let webSpeechActive = false;
+  let recordingHotkeyTarget = null; // "send_turn" | "discard_turn" | null
+
+  const MOD_CMD = 1;
+  const MOD_SHIFT = 2;
+  const MOD_OPTION = 4;
+  const MOD_CONTROL = 8;
+
+  const MODIFIER_CODES = new Set([
+    "MetaLeft", "MetaRight", "AltLeft", "AltRight",
+    "ControlLeft", "ControlRight", "ShiftLeft", "ShiftRight",
+    "CapsLock", "Fn"
+  ]);
+
+  function eventModifiersMask(e) {
+    let m = 0;
+    if (e.metaKey) m |= MOD_CMD;
+    if (e.shiftKey) m |= MOD_SHIFT;
+    if (e.altKey) m |= MOD_OPTION;
+    if (e.ctrlKey) m |= MOD_CONTROL;
+    return m;
+  }
+
+  function matchesHotkey(e, binding) {
+    if (!binding || !binding.key_code) return false;
+    return e.code === binding.key_code && eventModifiersMask(e) === (binding.modifiers || 0);
+  }
+
+  function stopHotkeyRecording() {
+    if (!recordingHotkeyTarget) return;
+    recordingHotkeyTarget = null;
+    $("hk-send-btn").classList.remove("is-recording");
+    $("hk-discard-btn").classList.remove("is-recording");
+    send({ action: "set_hotkey_recording", hotkey_recording: false });
+    renderState();
+  }
+
+  function startHotkeyRecording(target) {
+    if (recordingHotkeyTarget === target) {
+      stopHotkeyRecording();
+      return;
+    }
+    recordingHotkeyTarget = target;
+    $("hk-send-btn").classList.toggle("is-recording", target === "send_turn");
+    $("hk-discard-btn").classList.toggle("is-recording", target === "discard_turn");
+    if (target === "send_turn") $("hk-send-btn").textContent = "Press keys…";
+    if (target === "discard_turn") $("hk-discard-btn").textContent = "Press keys…";
+    send({ action: "set_hotkey_recording", hotkey_recording: true });
+  }
 
   const $ = (id) => document.getElementById(id);
 
@@ -23,7 +72,6 @@
 
   function stopSessionReliably() {
     send({ action: "stop_session" });
-    // Belt-and-suspenders REST fallback so Stop always works even if WS is reconnecting
     fetch("/api/stop", { method: "POST" }).catch(() => {});
   }
 
@@ -45,9 +93,7 @@
       }
     };
 
-    ws.onclose = () => {
-      setTimeout(connectWS, 1000);
-    };
+    ws.onclose = () => setTimeout(connectWS, 1000);
   }
 
   async function refreshLogs() {
@@ -56,181 +102,141 @@
       const data = await res.json();
       $("log-file-path").textContent = data.path || "—";
       const box = $("log-tail-box");
-      box.textContent = (data.lines && data.lines.length)
-        ? data.lines.join("\n")
-        : "No log entries yet.";
+      box.textContent = (data.lines && data.lines.length) ? data.lines.join("\n") : "No log entries yet.";
       box.scrollTop = box.scrollHeight;
     } catch (e) {
-      $("log-tail-box").textContent = "Failed to fetch logs: " + e;
+      $("log-tail-box").textContent = "Failed to load logs: " + e;
     }
+  }
+
+  function openDrawer(tab) {
+    activeDrawerTab = tab;
+    $("drawer").classList.remove("hidden");
+    $("tab-turns").classList.toggle("is-active", tab === "turns");
+    $("tab-settings").classList.toggle("is-active", tab === "settings");
+    $("panel-turns").classList.toggle("hidden", tab !== "turns");
+    $("panel-settings").classList.toggle("hidden", tab !== "settings");
+    send({ action: "set_drawer", drawer_open: true });
+    if (tab === "settings") refreshLogs();
+  }
+
+  function closeDrawer() {
+    $("drawer").classList.add("hidden");
+    send({ action: "set_drawer", drawer_open: false });
   }
 
   function renderState() {
     if (!state) return;
 
-    if (state.hud_compact_mode) {
-      $("studio-shell").classList.add("hidden");
-      $("hud-shell").classList.remove("hidden");
-    } else {
-      $("hud-shell").classList.add("hidden");
-      $("studio-shell").classList.remove("hidden");
-    }
-
-    // Detached Capture Box readout
-    const r = state.region || { width: 1280, height: 720, display_index: 0, locked: false, visible: true };
-    $("region-readout").textContent = r.locked
-      ? `LOCKED ${r.width} × ${r.height} · Display ${(r.display_index || 0) + 1}`
-      : `${r.width} × ${r.height} · Display ${(r.display_index || 0) + 1}`;
-    $("frame-status-dot").classList.toggle("is-locked", !!r.locked);
-    $("btn-toggle-frame").textContent = r.visible ? "Hide Frame" : "Show Frame";
-
-    // Workspace, silence timeout & thread badge
-    if (!$("workspace-input").value && state.workspace_path) {
-      $("workspace-input").value = state.workspace_path;
-    }
-    if (state.silence_timeout_ms && $("silence-select")) {
-      $("silence-select").value = String(state.silence_timeout_ms);
-    }
-    $("sidebar-workspace-path").textContent = `📁 ${state.workspace_path || "Select workspace…"}`;
-    $("sidebar-thread-badge").textContent = state.conversation_id
-      ? `#${state.conversation_id.slice(0, 8)}`
-      : state.continue_session
-      ? "--continue"
-      : "new thread";
-
-    // Timers & Recording controls
-    const timeStr = fmtTime(state.elapsed_seconds);
-    $("top-timer").textContent = timeStr;
-    $("hud-timer").textContent = timeStr;
-
-    const hudDot = $("hud-rec-dot");
-    const hudLabel = $("hud-rec-label");
+    $("hud-timer").textContent = fmtTime(state.elapsed_seconds);
+    $("rec-dot").classList.toggle("is-live", !!(state.recording && !state.paused));
 
     if (state.recording) {
-      hudDot.classList.toggle("is-live", !state.paused);
-      hudLabel.textContent = state.paused ? "PAUSED" : "REC";
       $("btn-start").classList.add("hidden");
       $("btn-stop").classList.remove("hidden");
       $("btn-pause").disabled = false;
       $("btn-pause").textContent = state.paused ? "▶" : "⏸";
-      $("hud-pause-btn").textContent = state.paused ? "▶" : "⏸";
     } else {
-      hudDot.classList.remove("is-live");
-      hudLabel.textContent = "STANDBY";
       $("btn-start").classList.remove("hidden");
       $("btn-stop").classList.add("hidden");
       $("btn-pause").disabled = true;
       $("btn-pause").textContent = "⏸";
     }
 
-    // Antigravity status
-    const agyState = (state.agent_state || "idle").toUpperCase();
-    $("top-agy-badge").textContent = `AGY: ${agyState}`;
-    $("agent-status-sub").textContent = state.agent_status_text || "Ready";
-    $("hud-agy-status").textContent = `AGY: ${state.agent_state || "ready"}`;
+    // Hotkey labels (dynamic from persisted config)
+    const hk = state.hotkeys || {
+      send_turn: { key_code: "Enter", modifiers: MOD_OPTION, display: "⌥↩" },
+      discard_turn: { key_code: "Backspace", modifiers: MOD_OPTION, display: "⌥⌫" },
+    };
+    const sendLabel = hk.send_turn?.display || "⌥↩";
+    const discardLabel = hk.discard_turn?.display || "⌥⌫";
+    $("send-kbd").textContent = sendLabel;
+    $("btn-send-turn").title = `Finalize & Send Turn to Antigravity (Global ${sendLabel})`;
+    $("btn-discard").title = `Discard buffered transcript (Global ${discardLabel})`;
+    if (recordingHotkeyTarget !== "send_turn") {
+      $("hk-send-btn").textContent = sendLabel;
+    }
+    if (recordingHotkeyTarget !== "discard_turn") {
+      $("hk-discard-btn").textContent = discardLabel;
+    }
+
+    // Live transcript + highlight Send button when speech is buffered
+    const hasDraft = !!(state.live_transcript && state.live_transcript.trim().length > 0);
+    $("live-transcript").textContent = hasDraft
+      ? state.live_transcript
+      : state.recording
+      ? `Speak naturally — press ${sendLabel} when ready to send`
+      : `Ready — press Start, speak, then ${sendLabel} to send`;
+
+    const sendBtn = $("btn-send-turn");
+    sendBtn.classList.toggle("xnk-btn-cobalt", hasDraft);
+    sendBtn.classList.toggle("xnk-btn-secondary", !hasDraft);
+
+    // Antigravity Link Status Pill
+    const linkBtn = $("btn-link-status");
+    const linkText = $("link-pill-text");
+    if (state.conversation_id && state.agent_state !== "error") {
+      linkBtn.classList.add("is-linked");
+      linkBtn.classList.remove("is-unlinked");
+      const label = state.linked_repo
+        ? state.linked_repo.split("/").pop()
+        : state.conversation_id.slice(0, 8);
+      linkText.textContent = state.injected_count > 0 ? `${label} (${state.injected_count})` : `Linked: ${label}`;
+    } else if (state.conversation_id && state.agent_state === "error") {
+      linkBtn.classList.remove("is-linked");
+      linkBtn.classList.add("is-unlinked");
+      linkText.textContent = "Re-link AGY";
+    } else {
+      linkBtn.classList.remove("is-linked");
+      linkBtn.classList.add("is-unlinked");
+      linkText.textContent = "Link AGY";
+    }
+
+    // Capture Box readout
+    const r = state.region || { width: 1280, height: 720, display_index: 0, locked: false, visible: true };
+    $("region-readout").textContent = r.locked
+      ? `● LOCKED ${r.width} × ${r.height} · Display ${(r.display_index || 0) + 1}`
+      : `${r.width} × ${r.height} · Display ${(r.display_index || 0) + 1}`;
+    $("btn-toggle-frame").textContent = r.visible ? "Hide Box" : "Show Box";
+
+    // Settings sync
+    if (!$("conv-id-input").matches(":focus")) {
+      $("conv-id-input").value = state.conversation_id || "";
+    }
     $("top-platform").textContent = state.permissions?.platform || "—";
-    if (state.log_file_path) {
-      $("log-file-path").textContent = state.log_file_path;
-    }
+    if (state.log_file_path) $("log-file-path").textContent = state.log_file_path;
 
-    // Compact Live Tool Activity Pill (Zero Chat Spam)
-    const activeTools = state.active_tools || [];
-    if (activeTools.length > 0 && (state.agent_state === "working" || state.agent_state === "thinking" || state.agent_state === "awaiting_approval")) {
-      const latest = activeTools[activeTools.length - 1];
-      $("active-tools-text").textContent = `${latest} (${activeTools.length} ${activeTools.length === 1 ? "step" : "steps"})`;
-      $("active-tools-pill").classList.remove("hidden");
+    // Banners
+    if (state.last_error) {
+      $("error-banner-text").textContent = state.last_error;
+      $("error-banner").classList.remove("hidden");
     } else {
-      $("active-tools-pill").classList.add("hidden");
+      $("error-banner").classList.add("hidden");
     }
-
-    // Live Streaming AI Reply Bubble
-    const streamText = state.streaming_reply || "";
-    if (streamText) {
-      $("streaming-bubble-text").innerHTML = escapeHtml(streamText).replace(/\n/g, "<br/>");
-      $("streaming-bubble").classList.remove("hidden");
-      $("thinking-indicator").classList.add("hidden");
-      const scroller = $("panel-chat");
-      scroller.scrollTop = scroller.scrollHeight;
-    } else {
-      $("streaming-bubble").classList.add("hidden");
-      const isThinking = state.agent_state === "thinking" && activeTools.length === 0;
-      $("thinking-indicator").classList.toggle("hidden", !isThinking);
-    }
-
-    // AI TTS Voice Toggle (OFF by default)
-    const ttsBtn = $("btn-mute-voice");
-    if (state.voice_output_muted) {
-      ttsBtn.textContent = "🔇 AI Voice: OFF";
-      ttsBtn.className = "xnk-btn xnk-btn-secondary xnk-btn-sm";
-    } else {
-      ttsBtn.textContent = "🔊 AI Voice: ON";
-      ttsBtn.className = "xnk-btn xnk-btn-cobalt xnk-btn-sm";
-    }
-
-    // Batch Mode
-    const batchBadge = $("batch-status-badge");
-    const hudBatchPill = $("hud-batch-pill");
-    const flushBtn = $("btn-flush-batch");
-    if (state.batch_mode) {
-      batchBadge.textContent = `BATCH (${state.batched_count})`;
-      batchBadge.className = "xnk-badge xnk-badge-amber xnk-badge-pill";
-      hudBatchPill.textContent = `BATCH ${state.batched_count}`;
-      hudBatchPill.classList.remove("hidden");
-      flushBtn.classList.toggle("hidden", state.batched_count === 0);
-      flushBtn.textContent = `Send (${state.batched_count})`;
-    } else {
-      batchBadge.textContent = "AUTO-STREAM";
-      batchBadge.className = "xnk-badge xnk-badge-live xnk-badge-pill";
-      hudBatchPill.classList.add("hidden");
-      flushBtn.classList.add("hidden");
-    }
-
-    // Live Transcript Ribbon
-    const liveText = state.live_transcript || "Listening for director commentary…";
-    $("live-transcript-box").textContent = `🎙 ${liveText}`;
-    $("hud-transcript").textContent = liveText;
-
-    // Permissions inside Settings drawer
-    renderPermissions(state.permissions);
-
-    // Voice / Interactive ACP Permission Approval Callout
-    const perm = state.pending_approval;
-    if (perm) {
-      const desc = perm.command
-        ? `${perm.tool_name}: ${perm.command}`
-        : `${perm.tool_name}: ${perm.description || "Confirm action"}`;
-      $("studio-approval-desc").textContent = desc;
-      renderApprovalButtons(perm);
-      $("studio-approval-box").classList.remove("hidden");
-      $("hud-approval-text").textContent = desc;
-      $("hud-approval-strip").classList.remove("hidden");
-    } else {
-      $("studio-approval-box").classList.add("hidden");
-      $("hud-approval-strip").classList.add("hidden");
-    }
-
     if (state.last_bundle_path && !state.recording) {
-      $("last-bundle-text").textContent = `Archive sealed: ${state.last_bundle_path}`;
-      $("last-bundle-banner").classList.remove("hidden");
+      $("bundle-banner-text").textContent = `Archive sealed: ${state.last_bundle_path}`;
+      $("bundle-banner").classList.remove("hidden");
     } else {
-      $("last-bundle-banner").classList.add("hidden");
+      $("bundle-banner").classList.add("hidden");
     }
 
-    renderChat(state.chat_history || []);
+    // Counts, permissions & utterances
+    const count = (state.utterances || []).length;
+    $("utt-count").textContent = String(count);
+    $("utt-count-tab").textContent = String(count);
+    renderPermissions(state.permissions);
     renderUtterances(state.utterances || []);
-    $("utt-count").textContent = String((state.utterances || []).length);
   }
 
   function renderPermissions(p) {
     if (!p) return;
-    const container = $("perm-pills");
     const items = [
-      { label: "AGY CLI", ok: p.agy_available },
+      { label: "AGENTAPI", ok: p.agy_available },
       { label: "FFMPEG", ok: p.ffmpeg_available },
       { label: "SCREEN REC", ok: p.screen_recording === "granted" },
       { label: "ACCESSIBILITY", ok: p.accessibility === "granted" },
     ];
-    container.innerHTML = items
+    $("perm-pills").innerHTML = items
       .map((it) => `<span class="xnk-badge ${it.ok ? "xnk-badge-live" : "xnk-badge-amber"}">${it.label}</span>`)
       .join("");
   }
@@ -239,83 +245,14 @@
     return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
-  function renderApprovalButtons(perm) {
-    const box = $("studio-approval-actions");
-    const opts = perm.options || [];
-    if (!opts.length) {
-      box.innerHTML = `
-        <button class="xnk-btn xnk-btn-cobalt xnk-btn-sm" data-perm-dec="approve">✓ Approve <span class="xnk-kbd">⌘Y</span></button>
-        <button class="xnk-btn xnk-btn-danger xnk-btn-sm" data-perm-dec="deny">✕ Deny <span class="xnk-kbd">⌘N</span></button>`;
-      return;
-    }
-    box.innerHTML = opts
-      .map((o) => {
-        const isReject = (o.kind || "").startsWith("reject");
-        const isOnce = o.kind === "allow_once";
-        const cls = isReject ? "xnk-btn-danger" : isOnce ? "xnk-btn-cobalt" : "xnk-btn-secondary";
-        const kbd = isOnce ? ' <span class="xnk-kbd">⌘Y</span>' : isReject ? ' <span class="xnk-kbd">⌘N</span>' : "";
-        return `<button class="xnk-btn ${cls} xnk-btn-sm" data-perm-opt="${escapeHtml(o.option_id)}" data-perm-dec="${isReject ? "deny" : "approve"}">${escapeHtml(o.name || o.option_id)}${kbd}</button>`;
-      })
-      .join("");
-  }
-
-  function renderChat(entries) {
-    const stream = $("chat-stream");
-    if (!entries.length) {
-      stream.innerHTML = `
-        <div class="xnk-empty-state">
-          <strong>Ready for live Voice + Vision direction.</strong><br />
-          Drag the detached cyan Capture Box over any app on any monitor, press <strong>Start Live Session</strong>, and talk naturally — Antigravity will reply right here.
-        </div>`;
-      return;
-    }
-
-    stream.innerHTML = entries
-      .map((e) => {
-        if (e.role === "system") return `<div class="sys-note">${escapeHtml(e.text)}</div>`;
-        const cls = e.role === "user" ? "is-user" : "is-ai";
-        const roleLabel = e.role === "user" ? "Director (Voice)" : `<span class="xnk-orb-avatar"></span> Antigravity`;
-        const ts = e.timestamp ? new Date(e.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
-        let toolsHtml = "";
-        if (e.tool_steps && e.tool_steps.length) {
-          toolsHtml =
-            `<details class="tool-details"><summary>▸ ${e.tool_steps.length} tool ${e.tool_steps.length === 1 ? "step" : "steps"}</summary><ul>` +
-            e.tool_steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("") +
-            `</ul></details>`;
-        }
-        let thumbs = "";
-        if (e.frame_paths && e.frame_paths.length) {
-          thumbs =
-            `<div class="frame-strip">` +
-            e.frame_paths
-              .map(
-                (fp, idx) =>
-                  `<img class="frame-thumb" src="/api/frame?path=${encodeURIComponent(fp)}" data-frame-label="${idx === 0 ? "Trigger Frame" : "Reaction Frame"}" />`
-              )
-              .join("") +
-            `</div>`;
-        }
-        return `
-          <div class="xnk-chat-msg ${cls}">
-            <div class="xnk-chat-msg-header">
-              <span class="xnk-chat-msg-role">${roleLabel}</span>
-              <span class="xnk-chat-msg-time">${ts}</span>
-            </div>
-            ${toolsHtml}
-            <div class="xnk-prose">${escapeHtml(e.text).replace(/\n/g, "<br/>")}</div>
-            ${thumbs}
-          </div>`;
-      })
-      .join("");
-
-    const scroller = $("panel-chat");
-    scroller.scrollTop = scroller.scrollHeight;
-  }
-
   function renderUtterances(utts) {
     const list = $("utterance-list");
     if (!utts.length) {
-      list.innerHTML = `<div class="xnk-empty-state">No director utterances recorded yet.</div>`;
+      list.innerHTML = `
+        <div class="xnk-empty-state">
+          <strong>Partner Mode Ready.</strong><br />
+          Run <code>/xnk-iterate</code> in your active Google Antigravity conversation to link, position the detached cyan Capture Box, press <strong>Start</strong>, and talk naturally.
+        </div>`;
       return;
     }
     list.innerHTML = utts
@@ -354,34 +291,30 @@
       : 0.08;
     waveformHistory.push(targetVal);
 
-    drawCanvas($("studio-waveform"), waveformHistory.slice(-14), "#38bdf8");
-    drawCanvas($("hud-waveform"), waveformHistory.slice(-14), "#38bdf8");
+    const canvas = $("hud-waveform");
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      const bars = waveformHistory.slice(-14);
+      const gap = 3;
+      const bw = Math.max(2, (w - gap * (bars.length - 1)) / bars.length);
+      ctx.fillStyle = "#38bdf8";
+      bars.forEach((v, i) => {
+        const bh = Math.max(3, v * (h - 4));
+        ctx.beginPath();
+        ctx.roundRect(i * (bw + gap), (h - bh) / 2, bw, bh, 2);
+        ctx.fill();
+      });
+    }
     requestAnimationFrame(drawWaveforms);
-  }
-
-  function drawCanvas(canvas, bars, color) {
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const w = canvas.width;
-    const h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-    const gap = 3;
-    const bw = Math.max(2, (w - gap * (bars.length - 1)) / bars.length);
-    ctx.fillStyle = color;
-    bars.forEach((v, i) => {
-      const bh = Math.max(3, v * (h - 4));
-      const x = i * (bw + gap);
-      const y = (h - bh) / 2;
-      ctx.beginPath();
-      ctx.roundRect(x, y, bw, bh, 2);
-      ctx.fill();
-    });
   }
 
   function toggleWebSpeech() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-      alert("Web Speech API is not supported in this WebView; native macOS speech engine is used instead.");
+      alert("Web Speech API not supported here; native macOS speech engine is used.");
       return;
     }
     if (webSpeechActive && webSpeech) {
@@ -394,34 +327,24 @@
     webSpeech.continuous = true;
     webSpeech.interimResults = true;
     webSpeech.lang = "en-US";
-    let webSpeechBuffer = "";
-    let webSpeechTimer = null;
+    let buf = "";
     webSpeech.onresult = (e) => {
       let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
-        const text = e.results[i][0].transcript;
-        if (e.results[i].isFinal) {
-          webSpeechBuffer = (webSpeechBuffer + " " + text).trim();
-        } else {
-          interim += text;
-        }
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) buf = (buf + " " + t).trim();
+        else interim += t;
       }
-      const display = (webSpeechBuffer + " " + interim).trim();
-      if (display) {
-        $("live-transcript-box").textContent = `🎙 ${display}`;
-        $("hud-transcript").textContent = display;
-      }
-      if (webSpeechBuffer) {
-        clearTimeout(webSpeechTimer);
-        const waitMS = state?.silence_timeout_ms || 1800;
-        webSpeechTimer = setTimeout(() => {
-          if (webSpeechBuffer.trim()) {
-            send({ action: "inject_utterance", text: webSpeechBuffer.trim() });
-            webSpeechBuffer = "";
-          }
-        }, waitMS);
+      const disp = (buf + " " + interim).trim();
+      if (disp) $("live-transcript").textContent = disp;
+    };
+    window.__flushWebSpeech = () => {
+      if (buf.trim()) {
+        send({ action: "inject_utterance", text: buf.trim() });
+        buf = "";
       }
     };
+    window.__discardWebSpeech = () => { buf = ""; };
     webSpeech.onend = () => { if (webSpeechActive) webSpeech.start(); };
     webSpeechActive = true;
     webSpeech.start();
@@ -429,93 +352,52 @@
   }
 
   function bindEvents() {
-    $("btn-toggle-frame").addEventListener("click", () => send({ action: "toggle_box_visible" }));
-
     $("btn-start").addEventListener("click", () => {
       const dispIdx = state?.region?.display_index || 0;
-      send({
-        action: "start_session",
-        target_id: `display:${dispIdx}`,
-        workspace_path: $("workspace-input").value.trim(),
-        conversation_id: $("conv-id-input").value.trim(),
-        continue_session: $("continue-checkbox").checked,
-      });
+      send({ action: "start_session", target_id: `display:${dispIdx}` });
     });
-
     $("btn-stop").addEventListener("click", stopSessionReliably);
-    $("hud-stop-btn").addEventListener("click", stopSessionReliably);
     $("btn-pause").addEventListener("click", () => send({ action: "toggle_pause" }));
-    $("hud-pause-btn").addEventListener("click", () => send({ action: "toggle_pause" }));
-    $("btn-batch").addEventListener("click", () => send({ action: "toggle_batch" }));
-    $("hud-batch-btn").addEventListener("click", () => send({ action: "toggle_batch" }));
-    $("btn-flush-batch").addEventListener("click", () => send({ action: "flush_batch" }));
-    $("btn-discard").addEventListener("click", () => send({ action: "discard_last" }));
-    $("btn-mute-voice").addEventListener("click", () => send({ action: "toggle_mute" }));
-    $("btn-compact-hud").addEventListener("click", () => send({ action: "toggle_hud_mode" }));
-    $("hud-expand-btn").addEventListener("click", () => send({ action: "toggle_hud_mode" }));
+    $("btn-send-turn").addEventListener("click", () => {
+      if (window.__flushWebSpeech) window.__flushWebSpeech();
+      send({ action: "send_turn" });
+    });
+    $("btn-discard").addEventListener("click", () => {
+      if (window.__discardWebSpeech) window.__discardWebSpeech();
+      send({ action: "discard_turn" });
+    });
+    $("btn-toggle-frame").addEventListener("click", () => send({ action: "toggle_box_visible" }));
     $("btn-web-mic").addEventListener("click", toggleWebSpeech);
 
-    // Settings & Logs Modal
-    const openSettings = () => {
-      $("settings-modal").classList.remove("hidden");
-      refreshLogs();
-    };
-    const closeSettings = () => $("settings-modal").classList.add("hidden");
-    $("btn-settings").addEventListener("click", openSettings);
-    $("workspace-pill-btn").addEventListener("click", openSettings);
-    $("settings-close-btn").addEventListener("click", closeSettings);
+    // Drawer toggles
+    $("btn-turns").addEventListener("click", () => {
+      if (!$("drawer").classList.contains("hidden") && activeDrawerTab === "turns") closeDrawer();
+      else openDrawer("turns");
+    });
+    $("btn-settings").addEventListener("click", () => {
+      if (!$("drawer").classList.contains("hidden") && activeDrawerTab === "settings") closeDrawer();
+      else openDrawer("settings");
+    });
+    $("btn-link-status").addEventListener("click", () => openDrawer("settings"));
+    $("btn-close-drawer").addEventListener("click", closeDrawer);
+    $("tab-turns").addEventListener("click", () => openDrawer("turns"));
+    $("tab-settings").addEventListener("click", () => openDrawer("settings"));
+
+    // Link / Settings actions
+    $("btn-bind-conv").addEventListener("click", () => {
+      const id = $("conv-id-input").value.trim();
+      if (id) send({ action: "bind_conversation", conversation_id: id });
+    });
+    $("btn-unbind-conv").addEventListener("click", () => send({ action: "unbind_conversation" }));
     $("btn-refresh-logs").addEventListener("click", refreshLogs);
-    $("btn-browse-folder").addEventListener("click", async () => {
-      try {
-        const res = await fetch("/api/pick-folder", { method: "POST" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!data.cancelled && data.path) {
-          $("workspace-input").value = data.path;
-        }
-      } catch (e) {
-        console.error("folder picker error", e);
-      }
-    });
-    $("settings-save-btn").addEventListener("click", () => {
-      send({
-        action: "update_settings",
-        workspace_path: $("workspace-input").value.trim(),
-        conversation_id: $("conv-id-input").value.trim(),
-        continue_session: $("continue-checkbox").checked,
-        silence_timeout_ms: parseInt($("silence-select")?.value || "1800", 10),
-      });
-      closeSettings();
+    $("hk-send-btn").addEventListener("click", () => startHotkeyRecording("send_turn"));
+    $("hk-discard-btn").addEventListener("click", () => startHotkeyRecording("discard_turn"));
+    $("btn-reset-hotkeys").addEventListener("click", () => {
+      stopHotkeyRecording();
+      send({ action: "reset_hotkeys" });
     });
 
-    // Dynamic ACP Approval Option Buttons (delegated)
-    const approve = (optId = "") => send({ action: "resolve_approval", request_id: state?.pending_approval?.id || "", option_id: optId, decision: "approve" });
-    const deny = (optId = "") => send({ action: "resolve_approval", request_id: state?.pending_approval?.id || "", option_id: optId, decision: "deny" });
-    $("studio-approval-actions").addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-perm-dec]");
-      if (!btn) return;
-      const optId = btn.dataset.permOpt || "";
-      if (btn.dataset.permDec === "deny") deny(optId);
-      else approve(optId);
-    });
-    $("hud-approve-btn").addEventListener("click", () => approve(""));
-    $("hud-deny-btn").addEventListener("click", () => deny(""));
-
-    // Tabs
-    $("tab-chat").addEventListener("click", () => {
-      $("tab-chat").classList.add("is-active");
-      $("tab-timeline").classList.remove("is-active");
-      $("panel-chat").classList.remove("hidden");
-      $("panel-timeline").classList.add("hidden");
-    });
-    $("tab-timeline").addEventListener("click", () => {
-      $("tab-timeline").classList.add("is-active");
-      $("tab-chat").classList.remove("is-active");
-      $("panel-timeline").classList.remove("hidden");
-      $("panel-chat").classList.add("hidden");
-    });
-
-    // Manual Director Turn
+    // Manual inject
     $("manual-form").addEventListener("submit", (e) => {
       e.preventDefault();
       const input = $("manual-input");
@@ -525,7 +407,7 @@
       input.value = "";
     });
 
-    // Frame Lightbox
+    // Frame lightbox
     document.addEventListener("click", (e) => {
       const thumb = e.target.closest(".frame-thumb");
       if (thumb) {
@@ -537,29 +419,59 @@
     $("frame-modal-close").addEventListener("click", () => $("frame-modal").classList.add("hidden"));
     $("frame-modal").addEventListener("click", (e) => { if (e.target === $("frame-modal")) $("frame-modal").classList.add("hidden"); });
 
-    // Hotkeys
+    // Hotkeys (shortcut recorder + local fallback when HUD window itself is focused)
     document.addEventListener("keydown", (e) => {
+      if (recordingHotkeyTarget) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.key === "Escape") {
+          stopHotkeyRecording();
+          return;
+        }
+        if (MODIFIER_CODES.has(e.code)) {
+          return;
+        }
+        const mods = eventModifiersMask(e);
+        const isFuncKey = /^F([1-9]|1[0-2])$/.test(e.code);
+        const hasPrimaryMod = (mods & (MOD_CMD | MOD_OPTION | MOD_CONTROL)) !== 0;
+        if (!isFuncKey && !hasPrimaryMod) {
+          $("hotkey-hint").textContent = "Include ⌘, ⌥, or ⌃ with your key (or use F1–F12). Press Esc to cancel.";
+          return;
+        }
+        const current = state?.hotkeys || {
+          send_turn: { key_code: "Enter", modifiers: MOD_OPTION, display: "⌥↩" },
+          discard_turn: { key_code: "Backspace", modifiers: MOD_OPTION, display: "⌥⌫" },
+        };
+        const next = {
+          send_turn: { ...current.send_turn },
+          discard_turn: { ...current.discard_turn },
+        };
+        next[recordingHotkeyTarget] = { key_code: e.code, modifiers: mods, display: "" };
+        $("hotkey-hint").textContent = "Click a shortcut to rebind (requires ⌘/⌥/⌃ + key, or F1–F12; Esc cancels).";
+        send({ action: "update_hotkeys", hotkeys: next });
+        stopHotkeyRecording();
+        return;
+      }
+
       const inInput = document.activeElement && ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
-      if (e.metaKey && e.key.toLowerCase() === "y" && state?.pending_approval) {
+      const hk = state?.hotkeys || {
+        send_turn: { key_code: "Enter", modifiers: MOD_OPTION },
+        discard_turn: { key_code: "Backspace", modifiers: MOD_OPTION },
+      };
+      if (matchesHotkey(e, hk.send_turn)) {
         e.preventDefault();
-        approve();
-      } else if (e.metaKey && e.key.toLowerCase() === "n" && state?.pending_approval) {
+        if (window.__flushWebSpeech) window.__flushWebSpeech();
+        send({ action: "send_turn" });
+      } else if (matchesHotkey(e, hk.discard_turn)) {
         e.preventDefault();
-        deny();
-      } else if (e.altKey && e.key.toLowerCase() === "b") {
-        e.preventDefault();
-        send({ action: "toggle_batch" });
+        if (window.__discardWebSpeech) window.__discardWebSpeech();
+        send({ action: "discard_turn" });
       } else if (!inInput && e.code === "Space" && state?.recording) {
         e.preventDefault();
         send({ action: "toggle_pause" });
       } else if (!inInput && e.key === "Escape") {
-        if (!$("settings-modal").classList.contains("hidden")) {
-          closeSettings();
-        } else if (!$("frame-modal").classList.contains("hidden")) {
-          $("frame-modal").classList.add("hidden");
-        } else if (state?.recording) {
-          stopSessionReliably();
-        }
+        if (!$("frame-modal").classList.contains("hidden")) $("frame-modal").classList.add("hidden");
+        else if (state?.recording) stopSessionReliably();
       }
     });
   }

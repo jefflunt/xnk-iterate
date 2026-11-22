@@ -31,11 +31,11 @@ While browser-based recording worked brilliantly for web games, software develop
    - Utterances are automatically mapped to when an in-game or in-app event occurred, not just when the speech ended.
    - **Dynamic Duration Scaling:** If you make a quick comment, lookback spans $[t_{\text{start}} - 3\text{s}, t_{\text{end}}]$. If you speak for a 2-minute monologue, the lookback dynamically scales to cover the entire preceding interaction ($2.5+$ minutes).
    - **Interaction Anchoring (`CGEventTap`):** Correlates speech start with recent mouse clicks, key presses, and window focus changes to anchor the lookback to the root action.
-4. **Embedded Live Google Antigravity Session (Two-Way Voice + Vision Mode):**
-   - Video continuously streams to disk using Fragmented MP4 (`fMP4`).
-   - `xnk-iterate` **spawns and owns a live Antigravity session directly** via `agy` (`--input-format stream-json --output-format stream-json`, supporting `--continue` / `--conversation <id>` to resume any workspace thread, or `agy acp`).
-   - **Auto-Stream + Batch Hotkey:** Every finalized utterance (~400–500ms silence) is injected immediately as a structured multimodal turn (transcript, lookback timecodes, interaction logs, and Trigger/Reaction PNG paths), with a hotkey to hold/batch multi-sentence thoughts before dispatch.
-   - **Full Two-Way Conversational Voice:** Mirrors Antigravity's `/voice live` experience inside `xnk-iterate` — streaming spoken agent responses with hardware AEC barge-in (interrupt the agent just by speaking) and voice-driven permission approvals ("approve" / "deny") while you stay focused on your target app.
+4. **Google Antigravity Partner Companion (`agentapi` + `/xnk-iterate` Skill):**
+   - Video continuously streams to disk using Fragmented MP4 (`fMP4`) alongside a 30-second in-memory frame ring buffer.
+   - Instead of replacing Antigravity's chat UI, `xnk-iterate` **partners directly with your active Google Antigravity Desktop session** via `agentapi`. Run `/xnk-iterate` in any Antigravity chat to bind automatically over `http://127.0.0.1:9292/api/bind`.
+   - **Voice-Activated Start + Global Hotkey Send/Discard:** Speaking automatically marks `speechStart` for dynamic lookback anchoring while continuously accumulating your commentary across pauses. Press your global macOS hotkey (default **`⌥↩`** to send, **`⌥⌫`** to discard — customizable in **⚙ Settings**) from *any* focused app to inject the finalized turn + Trigger/Reaction frames straight into Antigravity.
+   - **Compact Floating Companion HUD:** A sleek `960×108` floating HUD bar (expandable to `960×500` for inspecting captured turns, frame lightboxes, hotkey customization, and live diagnostic logs) paired with an always-detached, multi-monitor click-through Capture Box.
 5. **Standalone Archive Bundles:**
    - Produces a self-contained `.xnk` (or `.director`) playtest folder containing the video, dual-frame snapshots (Trigger at $t_{\text{action}}$, Reaction at $t_{\text{speech}}$), and `manifest.json`.
 

@@ -26,9 +26,12 @@ type Event struct {
 	Message       string    `json:"message,omitempty"`        // Diagnostic/status text
 }
 
-// Engine is the cross-platform live microphone VAD + Speech-to-Text interface.
+// Engine is the live microphone VAD + Speech-to-Text interface.
+// Voice activity automatically marks turn start for Lookback; turns are finalized explicitly via FlushTurn/DiscardTurn.
 type Engine interface {
-	Start(ctx context.Context, silenceTimeoutMS int, elapsedFn func() float64, onEvent func(Event)) error
+	Start(ctx context.Context, elapsedFn func() float64, onEvent func(Event)) error
+	FlushTurn() error
+	DiscardTurn() error
 	Stop() error
 	MicrophoneStatus() string
 	SpeechStatus() string

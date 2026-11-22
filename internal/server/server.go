@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/jefflunt/xnk-iterate/internal/antigravity"
 	"github.com/jefflunt/xnk-iterate/internal/applog"
 	"github.com/jefflunt/xnk-iterate/internal/mcp"
 	"github.com/jefflunt/xnk-iterate/internal/model"
@@ -21,24 +20,18 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 16384,
 	CheckOrigin: func(r *http.Request) bool {
-		// Localhost desktop WebView / local tooling only
 		return true
 	},
 }
 
-// Server hosts the embedded XNK UI, REST endpoints, WebSocket hub, and Vision MCP endpoint.
+// Server hosts the embedded XNK Companion HUD, REST endpoints (/api/bind, /api/stop, /api/logs),
+// WebSocket hub (/ws), and Vision MCP endpoint (/api/mcp).
 type Server struct {
-	orch         *session.Orchestrator
-	mcpServer    *mcp.Server
-	mux          *http.ServeMux
-	listener     net.Listener
-	httpSrv      *http.Server
-	folderPicker func(initialDir string) (string, bool)
-}
-
-// SetFolderPicker registers the native OS directory picker callback.
-func (s *Server) SetFolderPicker(fn func(initialDir string) (string, bool)) {
-	s.folderPicker = fn
+	orch      *session.Orchestrator
+	mcpServer *mcp.Server
+	mux       *http.ServeMux
+	listener  net.Listener
+	httpSrv   *http.Server
 }
 
 // New creates a local server bound to orchestrator and static frontend FS.
@@ -54,7 +47,8 @@ func New(orch *session.Orchestrator, assetsFS fs.FS) *Server {
 	s.mux.HandleFunc("/api/frame", s.handleFrame)
 	s.mux.HandleFunc("/api/logs", s.handleLogs)
 	s.mux.HandleFunc("/api/stop", s.handleStop)
-	s.mux.HandleFunc("/api/pick-folder", s.handlePickFolder)
+	s.mux.HandleFunc("/api/bind", s.handleBind)
+	s.mux.HandleFunc("/api/unbind", s.handleUnbind)
 	s.mux.Handle("/api/mcp", s.mcpServer)
 	s.mux.HandleFunc("/ws", s.handleWS)
 
@@ -65,9 +59,13 @@ func New(orch *session.Orchestrator, assetsFS fs.FS) *Server {
 	return s
 }
 
-// Start binds to addr (e.g. "127.0.0.1:0" or "127.0.0.1:9292") and returns the actual URL.
+// Start binds to addr (falling back to 127.0.0.1:0 if the preferred port is occupied).
 func (s *Server) Start(addr string) (string, error) {
 	ln, err := net.Listen("tcp", addr)
+	if err != nil && addr != "127.0.0.1:0" {
+		applog.Warn("server", "preferred addr %s unavailable (%v); falling back to ephemeral port", addr, err)
+		ln, err = net.Listen("tcp", "127.0.0.1:0")
+	}
 	if err != nil {
 		return "", err
 	}
@@ -144,25 +142,38 @@ func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handlePickFolder(w http.ResponseWriter, r *http.Request) {
-	if s.folderPicker == nil {
-		http.Error(w, "folder picker not available", http.StatusNotImplemented)
+func (s *Server) handleBind(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ConversationID string `json:"conversation_id"`
+		LSAddress      string `json:"ls_address,omitempty"`
+		CSRFToken      string `json:"csrf_token,omitempty"`
+		AgentAPIExe    string `json:"agentapi_exe,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	snap := s.orch.StateSnapshot()
-	applog.Info("server", "opening native folder picker (initial=%s)", snap.WorkspacePath)
-	picked, ok := s.folderPicker(snap.WorkspacePath)
+	applog.Info("server", "POST /api/bind conversation_id=%s ls_address=%s", body.ConversationID, body.LSAddress)
+	meta, err := s.orch.BindConversationWithEnv(body.ConversationID, body.LSAddress, body.CSRFToken, body.AgentAPIExe)
 	w.Header().Set("Content-Type", "application/json")
-	if !ok || picked == "" {
-		_ = json.NewEncoder(w).Encode(map[string]any{"cancelled": true})
-		return
+	resp := map[string]any{
+		"bound":           err == nil,
+		"conversation_id": meta.ConversationID,
+		"repo_name":       meta.RepoName,
+		"branch_name":     meta.BranchName,
+		"workspace_path":  meta.WorkspacePath,
+		"warning":         errString(err),
 	}
-	applog.Info("server", "workspace folder selected: %s", picked)
-	s.orch.UpdateSettings(picked, snap.ConversationID, snap.ContinueSession, snap.SilenceTimeoutMS)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"cancelled": false,
-		"path":      picked,
-	})
+	if err != nil && body.LSAddress == "" {
+		resp["hint"] = "Re-read ~/.gemini/config/skills/xnk-iterate/SKILL.md and include ls_address ($ANTIGRAVITY_LS_ADDRESS), csrf_token ($ANTIGRAVITY_CSRF_TOKEN), and agentapi_exe ($ANTIGRAVITY_AGENTAPI_EXE) in the POST /api/bind JSON body."
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleUnbind(w http.ResponseWriter, r *http.Request) {
+	s.orch.UnbindConversation()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"bound": false})
 }
 
 func errString(err error) string {
@@ -173,19 +184,15 @@ func errString(err error) string {
 }
 
 type wsClientCommand struct {
-	Action          string               `json:"action"`
-	TargetID        string               `json:"target_id,omitempty"`
-	WorkspacePath   string               `json:"workspace_path,omitempty"`
+	Action           string               `json:"action"`
+	TargetID         string               `json:"target_id,omitempty"`
 	ConversationID   string               `json:"conversation_id,omitempty"`
-	ContinueSession  bool                 `json:"continue_session,omitempty"`
 	SilenceTimeoutMS int                  `json:"silence_timeout_ms,omitempty"`
-	Model            string               `json:"model,omitempty"`
-	Mode             string               `json:"mode,omitempty"`
 	Text             string               `json:"text,omitempty"`
-	RequestID        string               `json:"request_id,omitempty"`
-	OptionID         string               `json:"option_id,omitempty"`
-	Decision         string               `json:"decision,omitempty"`
+	DrawerOpen       bool                 `json:"drawer_open,omitempty"`
 	Region           *model.CaptureRegion `json:"region,omitempty"`
+	Hotkeys          *model.HotkeyConfig  `json:"hotkeys,omitempty"`
+	HotkeyRecording  bool                 `json:"hotkey_recording,omitempty"`
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +202,6 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	// Send initial snapshot immediately
 	_ = conn.WriteJSON(session.LiveEvent{
 		Type:    "state",
 		Payload: s.orch.StateSnapshot(),
@@ -204,10 +210,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	sub := s.orch.Subscribe()
 	defer s.orch.Unsubscribe(sub)
 
-	done := make(chan struct{})
-	// Writer loop
 	go func() {
-		defer close(done)
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 		for {
@@ -220,7 +223,6 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case <-ticker.C:
-				// Keep elapsed timer ticking smoothly while recording
 				snap := s.orch.StateSnapshot()
 				if snap.Recording && !snap.Paused {
 					if err := conn.WriteJSON(session.LiveEvent{Type: "state", Payload: snap}); err != nil {
@@ -231,7 +233,6 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Reader loop
 	for {
 		var cmd wsClientCommand
 		if err := conn.ReadJSON(&cmd); err != nil {
@@ -247,12 +248,8 @@ func (s *Server) dispatchCommand(cmd wsClientCommand) {
 	case "start_session":
 		go func() {
 			if err := s.orch.StartSession(session.StartOptions{
-				TargetID:        cmd.TargetID,
-				WorkspacePath:   cmd.WorkspacePath,
-				ConversationID:  cmd.ConversationID,
-				ContinueSession: cmd.ContinueSession,
-				Model:           cmd.Model,
-				Mode:            cmd.Mode,
+				TargetID:       cmd.TargetID,
+				ConversationID: cmd.ConversationID,
 			}); err != nil {
 				applog.Error("ws", "start_session error: %v", err)
 			}
@@ -265,33 +262,35 @@ func (s *Server) dispatchCommand(cmd wsClientCommand) {
 		}()
 	case "toggle_pause":
 		s.orch.TogglePause()
-	case "toggle_batch":
-		s.orch.ToggleBatchMode()
-	case "flush_batch":
-		s.orch.FlushBatch()
-	case "discard_last":
-		s.orch.DiscardLastUtterance()
-	case "toggle_mute":
-		s.orch.ToggleVoiceMute()
-	case "toggle_hud_mode":
-		s.orch.ToggleHUDCompactMode()
+	case "send_turn":
+		s.orch.SendCurrentTurn()
+	case "discard_turn":
+		s.orch.DiscardCurrentTurn()
 	case "toggle_box_visible":
 		s.orch.ToggleCaptureBoxVisible()
+	case "set_drawer":
+		s.orch.SetDrawerOpen(cmd.DrawerOpen)
 	case "set_region":
 		if cmd.Region != nil {
 			s.orch.UpdateRegion(*cmd.Region, false)
 		}
-	case "toggle_detach_box":
-		s.orch.ToggleDetachCaptureBox()
+	case "bind_conversation":
+		go func() {
+			_, _ = s.orch.BindConversation(cmd.ConversationID)
+		}()
+	case "unbind_conversation":
+		s.orch.UnbindConversation()
 	case "update_settings":
-		s.orch.UpdateSettings(cmd.WorkspacePath, cmd.ConversationID, cmd.ContinueSession, cmd.SilenceTimeoutMS)
+		s.orch.UpdateSettings(cmd.ConversationID, cmd.SilenceTimeoutMS)
+	case "update_hotkeys":
+		if cmd.Hotkeys != nil {
+			_ = s.orch.UpdateHotkeys(*cmd.Hotkeys)
+		}
+	case "reset_hotkeys":
+		s.orch.ResetHotkeys()
+	case "set_hotkey_recording":
+		s.orch.SetHotkeyRecording(cmd.HotkeyRecording)
 	case "inject_utterance":
 		s.orch.SubmitUtterance(cmd.Text, 1.0)
-	case "resolve_approval":
-		dec := antigravity.DecisionDeny
-		if cmd.Decision == "approve" {
-			dec = antigravity.DecisionApprove
-		}
-		_ = s.orch.ResolveApproval(cmd.RequestID, cmd.OptionID, dec)
 	}
 }

@@ -10,10 +10,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
+
+	"github.com/jefflunt/xnk-iterate/internal/applog"
 )
 
 //go:embed helper_darwin.swift
@@ -22,6 +26,7 @@ var helperSwiftSource string
 type darwinEngine struct {
 	mu      sync.Mutex
 	cmd     *exec.Cmd
+	stdin   io.WriteCloser
 	cancel  context.CancelFunc
 	running bool
 }
@@ -76,7 +81,7 @@ func ensureSwiftHelperBinary() (string, error) {
 	return binPath, nil
 }
 
-func (d *darwinEngine) Start(ctx context.Context, silenceTimeoutMS int, elapsedFn func() float64, onEvent func(Event)) error {
+func (d *darwinEngine) Start(ctx context.Context, elapsedFn func() float64, onEvent func(Event)) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.running {
@@ -85,32 +90,50 @@ func (d *darwinEngine) Start(ctx context.Context, silenceTimeoutMS int, elapsedF
 
 	binPath, err := ensureSwiftHelperBinary()
 	if err != nil {
-		// Graceful fallback: user can still inject utterances via UI/WebSpeech.
 		if onEvent != nil {
 			onEvent(Event{Type: EventStatus, Message: "native_speech_unavailable: " + err.Error()})
 		}
 		return nil
 	}
 
-	if silenceTimeoutMS < 400 {
-		silenceTimeoutMS = 1800
-	}
 	runCtx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(runCtx, binPath)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("XNK_SILENCE_MS=%d", silenceTimeoutMS))
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		cancel()
+		return err
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		cancel()
 		return err
 	}
+	stderr, _ := cmd.StderrPipe()
 	if err := cmd.Start(); err != nil {
 		cancel()
 		return err
 	}
+	applog.Info("speech", "native speech helper started (pid=%d bin=%s)", cmd.Process.Pid, binPath)
 
 	d.cmd = cmd
+	d.stdin = stdin
 	d.cancel = cancel
 	d.running = true
+
+	if stderr != nil {
+		go func() {
+			sc := bufio.NewScanner(stderr)
+			logged := 0
+			for sc.Scan() {
+				line := strings.TrimSpace(sc.Text())
+				if line == "" || logged >= 15 {
+					continue
+				}
+				logged++
+				applog.Warn("speech-helper", "%s", line)
+			}
+		}()
+	}
 
 	go func() {
 		scanner := bufio.NewScanner(stdout)
@@ -133,9 +156,33 @@ func (d *darwinEngine) Start(ctx context.Context, silenceTimeoutMS int, elapsedF
 	return nil
 }
 
+func (d *darwinEngine) FlushTurn() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.running || d.stdin == nil {
+		return nil
+	}
+	_, err := d.stdin.Write([]byte("flush\n"))
+	return err
+}
+
+func (d *darwinEngine) DiscardTurn() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.running || d.stdin == nil {
+		return nil
+	}
+	_, err := d.stdin.Write([]byte("discard\n"))
+	return err
+}
+
 func (d *darwinEngine) Stop() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.stdin != nil {
+		_ = d.stdin.Close()
+		d.stdin = nil
+	}
 	if d.cancel != nil {
 		d.cancel()
 		d.cancel = nil

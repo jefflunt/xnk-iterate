@@ -16,46 +16,62 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:0", "local HTTP/WebSocket bind address (use 127.0.0.1:9292 for fixed port)")
-	storageDir := flag.String("storage", "", "directory for exported director bundles (defaults to ./storage/recordings)")
-	headless := flag.Bool("headless", false, "run local HTTP/WS/MCP server without opening the native desktop window")
+	addr := flag.String("addr", "127.0.0.1:9292", "local HTTP/WebSocket/MCP bind address (falls back to ephemeral if busy)")
+	storageDir := flag.String("storage", "", "directory for exported director bundles")
+	headless := flag.Bool("headless", false, "run local HTTP/WS/MCP server without opening the native HUD window")
 	flag.Parse()
 
 	logFile := applog.Init("")
-	applog.Info("main", "starting XNK Iterate (log=%s)", logFile)
+	applog.Info("main", "starting XNK Iterate Companion (log=%s)", logFile)
 
 	orch := session.NewOrchestrator(*storageDir)
 	srv := server.New(orch, ui.AssetsFS())
-	srv.SetFolderPicker(ui.PickFolder)
 
 	url, err := srv.Start(*addr)
 	if err != nil {
 		applog.Error("main", "failed to start local server: %v", err)
 		log.Fatalf("failed to start local server: %v", err)
 	}
-	applog.Info("main", "local server listening at %s", url)
+	applog.Info("main", "local companion bridge listening at %s", url)
 	defer func() {
 		_, _ = orch.StopSession()
 		_ = srv.Close()
 	}()
 
 	if *headless {
-		fmt.Printf("XNK Iterate server running at %s (headless mode, log: %s)\n", url, logFile)
+		fmt.Printf("XNK Iterate Companion running at %s (headless mode, log: %s)\n", url, logFile)
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 		<-sig
 		return
 	}
 
-	app := ui.NewDesktopApp("XNK Iterate — Voice + Vision Antigravity Director", url)
+	app := ui.NewDesktopApp("XNK Iterate", url)
 	captureBox := ui.NewPlatformCaptureBox()
 	defer captureBox.Destroy()
 
 	ui.SetOnTerminate(func() {
-		applog.Info("main", "application terminating — stopping session and destroying Capture Box")
+		applog.Info("main", "application terminating — unregistering hotkeys, stopping session, destroying Capture Box")
+		ui.UnregisterGlobalHotkeys()
 		captureBox.Destroy()
 		_, _ = orch.StopSession()
 		_ = srv.Close()
+	})
+
+	// Register system-wide macOS Carbon hotkeys (customizable in Settings; defaults ⌥↩ and ⌥⌫)
+	ui.RegisterGlobalHotkeys(orch.StateSnapshot().Hotkeys, func(hotkeyID int) {
+		switch hotkeyID {
+		case ui.HotkeySendTurn:
+			orch.SendCurrentTurn()
+		case ui.HotkeyDiscardTurn:
+			orch.DiscardCurrentTurn()
+		}
+	})
+	orch.SetHotkeysCallback(func(cfg model.HotkeyConfig) {
+		ui.UpdateGlobalHotkeys(cfg)
+	})
+	orch.SetHotkeysSuspendCallback(func(suspended bool) {
+		ui.SuspendGlobalHotkeys(suspended)
 	})
 
 	captureBox.SetOnRegionChange(func(r model.CaptureRegion) {
@@ -69,11 +85,11 @@ func main() {
 			captureBox.Hide()
 		}
 	})
-	orch.SetHUDToggleCallback(func(compact bool) {
-		app.SetCompactHUD(compact)
+	orch.SetDrawerToggleCallback(func(expanded bool) {
+		app.SetDrawerExpanded(expanded)
 	})
 
-	// Capture box is always detached — show it immediately across monitors on launch
+	// Detached multi-monitor Capture Box opens immediately on launch
 	captureBox.Show(orch.StateSnapshot().Region)
 
 	if err := app.Run(); err != nil {

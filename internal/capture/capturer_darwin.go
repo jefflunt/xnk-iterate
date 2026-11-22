@@ -101,6 +101,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jefflunt/xnk-iterate/internal/applog"
 	"github.com/jefflunt/xnk-iterate/internal/model"
 )
 
@@ -210,6 +211,16 @@ func (d *darwinCapturer) Start(ctx context.Context, cfg Config) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	d.cancel = cancel
 	d.running = true
+
+	// Guard against macOS TCC Screen Recording prompt spam:
+	// If this build does not currently hold Screen Recording access (e.g. after rebuilding an
+	// unsigned/ad-hoc .app, macOS invalidates the old CDHash even if the toggle still appears ON),
+	// do NOT spawn ffmpeg or the 500ms screencapture loop, which would otherwise trigger a new
+	// macOS permission dialog twice per second.
+	if !bool(C.hasScreenCaptureAccess()) {
+		applog.Warn("capture", "Screen Recording permission not granted for this binary — toggle XNK Iterate OFF/ON in System Settings > Privacy & Security > Screen & System Audio Recording and relaunch (voice capture continues)")
+		return nil
+	}
 
 	// 1. Start Fragmented MP4 recording via ffmpeg (if ffmpeg is installed & screen access available)
 	if FFmpegAvailable() && cfg.VideoFile != "" {

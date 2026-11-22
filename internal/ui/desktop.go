@@ -7,16 +7,16 @@ import (
 	webview "github.com/webview/webview_go"
 )
 
-// DesktopApp manages the cross-platform native WebView desktop window.
+// DesktopApp manages the floating XNK Iterate Companion HUD window.
 type DesktopApp struct {
-	mu      sync.Mutex
-	w       webview.WebView
-	title   string
-	url     string
-	compact bool
+	mu       sync.Mutex
+	w        webview.WebView
+	title    string
+	url      string
+	expanded bool
 }
 
-// NewDesktopApp creates a native OS desktop window pointing at url.
+// NewDesktopApp creates the native OS floating Companion HUD window pointing at url.
 func NewDesktopApp(title, url string) *DesktopApp {
 	return &DesktopApp{
 		title: title,
@@ -24,28 +24,28 @@ func NewDesktopApp(title, url string) *DesktopApp {
 	}
 }
 
-// SetCompactHUD switches the native window between full Director Studio and Compact Floating HUD.
-func (a *DesktopApp) SetCompactHUD(compact bool) {
+// SetDrawerExpanded resizes the floating HUD between its compact bar (960x108)
+// and expanded Turns/Settings drawer (960x500).
+func (a *DesktopApp) SetDrawerExpanded(expanded bool) {
 	a.mu.Lock()
 	w := a.w
-	a.compact = compact
+	a.expanded = expanded
 	a.mu.Unlock()
 
 	if w == nil {
 		return
 	}
 	w.Dispatch(func() {
-		if compact {
-			w.SetSize(900, 148, webview.HintNone)
-			configureNativeWindow(w.Window(), true)
+		if expanded {
+			w.SetSize(960, 500, webview.HintNone)
 		} else {
-			w.SetSize(1120, 740, webview.HintNone)
-			configureNativeWindow(w.Window(), false)
+			w.SetSize(960, 108, webview.HintNone)
 		}
+		configureNativeWindow(w.Window(), true)
 	})
 }
 
-// Run opens the native OS window and blocks on the main GUI thread until closed.
+// Run opens the native floating HUD window and blocks on the main GUI thread until closed.
 func (a *DesktopApp) Run() error {
 	w := webview.New(true)
 	if w == nil {
@@ -64,11 +64,11 @@ func (a *DesktopApp) Run() error {
 	}()
 
 	w.SetTitle(a.title)
-	w.SetSize(1120, 740, webview.HintNone)
-	w.SetSize(820, 130, webview.HintMin)
+	w.SetSize(960, 108, webview.HintNone)
+	w.SetSize(780, 96, webview.HintMin)
 
-	// Apply platform-specific native window styling (e.g., macOS capture self-exclusion)
-	configureNativeWindow(w.Window(), false)
+	// Always-on-top floating companion bar, self-excluded from screen captures on macOS
+	configureNativeWindow(w.Window(), true)
 
 	w.Navigate(a.url)
 	w.Run()
