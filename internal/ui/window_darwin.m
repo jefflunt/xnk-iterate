@@ -59,7 +59,7 @@ void setMacAppIcon(const void *pngBytes, int length) {
 void configureMacWindow(void *winPtr, bool floatingCompact) {
     if (winPtr == NULL) return;
     NSWindow *win = (__bridge NSWindow *)winPtr;
-    dispatch_async(dispatch_get_main_queue(), ^{
+    void (^applyConfig)(void) = ^{
         // Self-exclusion guarantee: prevent macOS screen capture APIs from recording our own window.
         [win setSharingType:NSWindowSharingNone];
         [win setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
@@ -105,7 +105,12 @@ void configureMacWindow(void *winPtr, bool floatingCompact) {
                             goAppWillTerminate();
                         }];
         }
-    });
+    };
+    if ([NSThread isMainThread]) {
+        applyConfig();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), applyConfig);
+    }
 }
 
 void startMacWindowDrag(void *winPtr) {

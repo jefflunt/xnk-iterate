@@ -119,3 +119,9 @@
 - Bound Apple's native `[win performWindowDragWithEvent:]` via `window.__xnkStartDrag()` so the HUD drags smoothly across monitors from the **XNK** badge or any non-button area of the bar (`⌘Q` quits cleanly).
 - Shrunk the audio level meter from `76px` to a compact `14px` 3-bar indicator and made the live transcript ribbon auto-scroll horizontally to the newest spoken words with a subtle left-edge fade mask (`internal/ui/assets/{index.html,styles.css,app.js}`).
 - Bumped `VERSION` to `2.2.0` (`v2.2.0`).
+
+## 2026-11-21 — v2.2.1 Borderless HUD Initial Height Fix
+
+### Summary
+- Applied `configureMacWindow` (`NSWindowStyleMaskFullSizeContentView`) synchronously before `w.SetSize` and increased compact HUD height from `68px` to `88px` (`960×88` collapsed, `960×490` expanded) so the borderless HUD launches at full unclipped height.
+- Bumped `VERSION` to `2.2.1` (`v2.2.1`).
