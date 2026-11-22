@@ -24,8 +24,8 @@ func NewDesktopApp(title, url string) *DesktopApp {
 	}
 }
 
-// SetDrawerExpanded resizes the floating HUD between its compact bar (960x108)
-// and expanded Turns/Settings drawer (960x500).
+// SetDrawerExpanded resizes the floating HUD between its borderless compact bar (960x68)
+// and expanded Turns/Settings drawer (960x470).
 func (a *DesktopApp) SetDrawerExpanded(expanded bool) {
 	a.mu.Lock()
 	w := a.w
@@ -37,9 +37,9 @@ func (a *DesktopApp) SetDrawerExpanded(expanded bool) {
 	}
 	w.Dispatch(func() {
 		if expanded {
-			w.SetSize(960, 500, webview.HintNone)
+			w.SetSize(960, 470, webview.HintNone)
 		} else {
-			w.SetSize(960, 108, webview.HintNone)
+			w.SetSize(960, 68, webview.HintNone)
 		}
 		configureNativeWindow(w.Window(), true)
 	})
@@ -64,10 +64,15 @@ func (a *DesktopApp) Run() error {
 	}()
 
 	w.SetTitle(a.title)
-	w.SetSize(960, 108, webview.HintNone)
-	w.SetSize(780, 96, webview.HintMin)
+	w.SetSize(960, 68, webview.HintNone)
+	w.SetSize(760, 64, webview.HintMin)
 
-	// Always-on-top floating companion bar, self-excluded from screen captures on macOS
+	// Bind native Cocoa window drag for the borderless HUD (drag from XNK badge or bar background)
+	_ = w.Bind("__xnkStartDrag", func() {
+		startNativeWindowDrag(w.Window())
+	})
+
+	// Always-on-top borderless floating companion bar, self-excluded from screen captures on macOS
 	configureNativeWindow(w.Window(), true)
 
 	w.Navigate(a.url)

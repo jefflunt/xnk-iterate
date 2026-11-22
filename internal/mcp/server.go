@@ -72,7 +72,7 @@ func (s *Server) HandleRequest(raw []byte) ([]byte, bool) {
 				},
 				"serverInfo": map[string]any{
 					"name":    "xnk-iterate",
-					"version": "2.1.1",
+					"version": "2.2.0",
 				},
 			},
 		}), true

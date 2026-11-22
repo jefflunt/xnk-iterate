@@ -18,9 +18,9 @@
       <span class="xnk-chassis-corner bl"></span>
       <span class="xnk-chassis-corner br"></span>
 
-      <!-- Left: Brand + REC Timer + Start/Stop/Pause -->
+      <!-- Left: Brand (Drag Handle) + REC Timer + Start/Stop/Pause -->
       <div class="hud-group">
-        <span class="brand-mark">XNK</span>
+        <span id="hud-drag-handle" class="brand-mark" title="Drag to reposition XNK Iterate">XNK</span>
         <span id="rec-dot" class="rec-dot"></span>
         <span id="hud-timer" class="hud-timer">00:00</span>
 
@@ -31,9 +31,9 @@
 
       <div class="hud-sep"></div>
 
-      <!-- Center: Live Waveform + Real-Time Transcript Ribbon -->
+      <!-- Center: Compact Level Meter + Auto-Scrolling Live Transcript Ticker -->
       <div class="hud-voice">
-        <canvas id="hud-waveform" width="76" height="22"></canvas>
+        <canvas id="hud-waveform" width="14" height="20"></canvas>
         <span id="live-transcript" class="hud-transcript">Ready — press Start, speak, then ⌥↩ to send</span>
       </div>
 

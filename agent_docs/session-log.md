@@ -111,3 +111,11 @@
 ### Summary
 - Simplified `FormatDirectorTurn` (`internal/antigravity/controller.go`) to put the user's spoken words first, followed by a single compact metadata & clickable frame link footer (`` `#1 · 0.4s–6.4s` · [trigger](...) · [reaction](...) ``), eliminating the redundant `[XNK ITERATE — LIVE DIRECTOR FEEDBACK]` banner and duplicated display resolution header.
 - Updated `skills/xnk-iterate/SKILL.md` (and `~/.gemini/config/skills/xnk-iterate/SKILL.md`), `TestFormatDirectorTurn`, and bumped `VERSION` to `2.1.1` (`v2.1.1`).
+
+## 2026-11-21 — v2.2.0 Borderless Draggable HUD, Compact 3-Bar Meter & Auto-Scrolling Live Transcript
+
+### Summary
+- Converted the floating Companion HUD into a sleek **borderless macOS window** (`960×68` collapsed, `960×470` expanded) by hiding the native titlebar and traffic lights (`NSWindowStyleMaskFullSizeContentView` + hidden standard buttons) while retaining full keyboard focus and native rounded corners/shadow (`internal/ui/window_darwin.m`, `internal/ui/desktop.go`).
+- Bound Apple's native `[win performWindowDragWithEvent:]` via `window.__xnkStartDrag()` so the HUD drags smoothly across monitors from the **XNK** badge or any non-button area of the bar (`⌘Q` quits cleanly).
+- Shrunk the audio level meter from `76px` to a compact `14px` 3-bar indicator and made the live transcript ribbon auto-scroll horizontally to the newest spoken words with a subtle left-edge fade mask (`internal/ui/assets/{index.html,styles.css,app.js}`).
+- Bumped `VERSION` to `2.2.0` (`v2.2.0`).

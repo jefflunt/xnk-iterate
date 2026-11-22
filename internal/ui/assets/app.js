@@ -160,13 +160,20 @@
       $("hk-discard-btn").textContent = discardLabel;
     }
 
-    // Live transcript + highlight Send button when speech is buffered
+    // Live transcript (auto-scrolls horizontally to newest spoken words) + highlight Send button
     const hasDraft = !!(state.live_transcript && state.live_transcript.trim().length > 0);
-    $("live-transcript").textContent = hasDraft
+    const txEl = $("live-transcript");
+    txEl.textContent = hasDraft
       ? state.live_transcript
       : state.recording
       ? `Speak naturally — press ${sendLabel} when ready to send`
       : `Ready — press Start, speak, then ${sendLabel} to send`;
+    txEl.classList.toggle("is-live-draft", hasDraft);
+    requestAnimationFrame(() => {
+      const overflowed = txEl.scrollWidth > txEl.clientWidth + 2;
+      txEl.classList.toggle("is-scrolled", overflowed);
+      txEl.scrollLeft = overflowed ? txEl.scrollWidth : 0;
+    });
 
     const sendBtn = $("btn-send-turn");
     sendBtn.classList.toggle("xnk-btn-cobalt", hasDraft);
@@ -297,14 +304,14 @@
       const w = canvas.width;
       const h = canvas.height;
       ctx.clearRect(0, 0, w, h);
-      const bars = waveformHistory.slice(-14);
-      const gap = 3;
-      const bw = Math.max(2, (w - gap * (bars.length - 1)) / bars.length);
+      const bars = waveformHistory.slice(-3);
+      const gap = 2;
+      const bw = Math.max(2, Math.floor((w - gap * (bars.length - 1)) / bars.length));
       ctx.fillStyle = "#38bdf8";
       bars.forEach((v, i) => {
-        const bh = Math.max(3, v * (h - 4));
+        const bh = Math.max(3, v * (h - 2));
         ctx.beginPath();
-        ctx.roundRect(i * (bw + gap), (h - bh) / 2, bw, bh, 2);
+        ctx.roundRect(i * (bw + gap), (h - bh) / 2, bw, bh, 1.5);
         ctx.fill();
       });
     }
@@ -352,6 +359,18 @@
   }
 
   function bindEvents() {
+    // Borderless HUD window drag (drag from XNK badge or any non-interactive area of the HUD bar)
+    const hudBar = document.querySelector(".hud-bar");
+    if (hudBar) {
+      hudBar.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest("button, input, select, a, pre")) return;
+        if (typeof window.__xnkStartDrag === "function") {
+          window.__xnkStartDrag();
+        }
+      });
+    }
+
     $("btn-start").addEventListener("click", () => {
       const dispIdx = state?.region?.display_index || 0;
       send({ action: "start_session", target_id: `display:${dispIdx}` });

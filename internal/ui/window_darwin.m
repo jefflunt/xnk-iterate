@@ -63,7 +63,16 @@ void configureMacWindow(void *winPtr, bool floatingCompact) {
         // Self-exclusion guarantee: prevent macOS screen capture APIs from recording our own window.
         [win setSharingType:NSWindowSharingNone];
         [win setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
+
+        // Borderless-look floating HUD: hide titlebar & traffic lights while keeping
+        // full keyboard focus (canBecomeKeyWindow) + native rounded corners & shadow.
+        [win setStyleMask:([win styleMask] | NSWindowStyleMaskFullSizeContentView)];
+        [win setTitleVisibility:NSWindowTitleHidden];
         [win setTitlebarAppearsTransparent:YES];
+        [[win standardWindowButton:NSWindowCloseButton] setHidden:YES];
+        [[win standardWindowButton:NSWindowMiniaturizeButton] setHidden:YES];
+        [[win standardWindowButton:NSWindowZoomButton] setHidden:YES];
+        [win setMovableByWindowBackground:YES];
         [win setBackgroundColor:[NSColor colorWithRed:0.02 green:0.02 blue:0.03 alpha:1.0]];
 
         if (floatingCompact) {
@@ -97,4 +106,20 @@ void configureMacWindow(void *winPtr, bool floatingCompact) {
                         }];
         }
     });
+}
+
+void startMacWindowDrag(void *winPtr) {
+    if (winPtr == NULL) return;
+    NSWindow *win = (__bridge NSWindow *)winPtr;
+    void (^doDrag)(void) = ^{
+        NSEvent *evt = [NSApp currentEvent];
+        if (evt != nil) {
+            [win performWindowDragWithEvent:evt];
+        }
+    };
+    if ([NSThread isMainThread]) {
+        doDrag();
+    } else {
+        dispatch_async(dispatch_get_main_queue(), doDrag);
+    }
 }

@@ -9,6 +9,7 @@ package ui
 void setupMacMainMenu(void);
 void setMacAppIcon(const void *pngBytes, int length);
 void configureMacWindow(void *winPtr, bool floatingCompact);
+void startMacWindowDrag(void *winPtr);
 */
 import "C"
 import (
@@ -57,4 +58,11 @@ func configureNativeWindow(windowPtr unsafe.Pointer, floatingCompact bool) {
 		return
 	}
 	C.configureMacWindow(windowPtr, C.bool(floatingCompact))
+}
+
+func startNativeWindowDrag(windowPtr unsafe.Pointer) {
+	if windowPtr == nil {
+		return
+	}
+	C.startMacWindowDrag(windowPtr)
 }
