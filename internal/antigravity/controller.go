@@ -205,35 +205,34 @@ func (b *Bridge) SendUtterances(ctx context.Context, conversationID string, utte
 	return nil
 }
 
-// FormatDirectorTurn builds a structured multimodal message for Google Antigravity
-// containing the director's spoken commentary, dynamic lookback timestamps, triggering
-// OS interactions, and local Trigger/Reaction frame paths for Antigravity to inspect.
-func FormatDirectorTurn(utterances []model.Utterance, target *model.CaptureTarget) string {
-	var b strings.Builder
-	b.WriteString("[XNK ITERATE — LIVE DIRECTOR FEEDBACK]\n")
-	if target != nil {
-		b.WriteString(fmt.Sprintf("Target: %s (%dx%d)\n", target.Title, target.Resolution.Width, target.Resolution.Height))
-	}
+// FormatDirectorTurn builds a concise, human-readable message for Google Antigravity
+// putting the spoken commentary first, followed by a single compact metadata & frame link footer.
+func FormatDirectorTurn(utterances []model.Utterance, _ *model.CaptureTarget) string {
+	var blocks []string
 	for _, u := range utterances {
-		b.WriteString(fmt.Sprintf("\nUtterance #%d [%.2fs–%.2fs] (Lookback: %.2fs–%.2fs):\n",
-			u.ID, u.SpeechStart, u.SpeechEnd, u.LookbackWindow.StartSeconds, u.LookbackWindow.EndSeconds))
-		b.WriteString(fmt.Sprintf("> %s\n", u.Transcript))
+		var meta strings.Builder
+		meta.WriteString(fmt.Sprintf("#%d · %.1fs–%.1fs", u.ID, u.LookbackWindow.StartSeconds, u.LookbackWindow.EndSeconds))
 		if u.TriggerAction != nil {
-			b.WriteString(fmt.Sprintf("- Trigger Action: `%s` @ `%.2fs`", u.TriggerAction.Type, u.TriggerAction.Timestamp))
+			meta.WriteString(fmt.Sprintf(" · %s", u.TriggerAction.Type))
 			if u.TriggerAction.Location != nil {
-				b.WriteString(fmt.Sprintf(" at `(%.0f, %.0f)`", u.TriggerAction.Location.X, u.TriggerAction.Location.Y))
+				meta.WriteString(fmt.Sprintf(" (%.0f,%.0f)", u.TriggerAction.Location.X, u.TriggerAction.Location.Y))
 			}
-			b.WriteString("\n")
+			meta.WriteString(fmt.Sprintf(" @ %.1fs", u.TriggerAction.Timestamp))
 		}
+
+		footerParts := []string{fmt.Sprintf("`%s`", meta.String())}
 		if u.TriggerFramePath != "" {
-			b.WriteString(fmt.Sprintf("- Trigger Frame (inspect with read_file): %s\n", u.TriggerFramePath))
+			footerParts = append(footerParts, fmt.Sprintf("[trigger](%s)", u.TriggerFramePath))
 		}
 		if u.ReactionFramePath != "" {
-			b.WriteString(fmt.Sprintf("- Reaction Frame (inspect with read_file): %s\n", u.ReactionFramePath))
+			footerParts = append(footerParts, fmt.Sprintf("[reaction](%s)", u.ReactionFramePath))
 		}
 		for idx, cp := range u.CarouselPaths {
-			b.WriteString(fmt.Sprintf("- Carousel Frame %d: %s\n", idx+1, cp))
+			footerParts = append(footerParts, fmt.Sprintf("[frame %d](%s)", idx+1, cp))
 		}
+
+		block := fmt.Sprintf("%s\n\n%s", strings.TrimSpace(u.Transcript), strings.Join(footerParts, " · "))
+		blocks = append(blocks, block)
 	}
-	return b.String()
+	return strings.Join(blocks, "\n\n")
 }

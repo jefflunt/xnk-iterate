@@ -105,3 +105,9 @@
 - Unlinking or re-linking a different conversation automatically switches the target brain directory for all subsequent frames (falling back to the local archive bundle `frames/` directory when unlinked).
 - Updated `/api/bind` (`internal/server/server.go`), `config.AppConfig` (`internal/config/store.go`), and `skills/xnk-iterate/SKILL.md` to capture and persist `ANTIGRAVITY_APP_DATA_DIR`, and updated `/api/frame` to serve HUD thumbnails/lightbox images from both `StorageRoot()` and `BrainRoot()`.
 - Added `TestFramesOutputDirFollowsLinkedConversation` and bumped `VERSION` to `2.1.0` (`v2.1.0`).
+
+## 2026-11-21 — v2.1.1 Compact Human-First Director Message Format
+
+### Summary
+- Simplified `FormatDirectorTurn` (`internal/antigravity/controller.go`) to put the user's spoken words first, followed by a single compact metadata & clickable frame link footer (`` `#1 · 0.4s–6.4s` · [trigger](...) · [reaction](...) ``), eliminating the redundant `[XNK ITERATE — LIVE DIRECTOR FEEDBACK]` banner and duplicated display resolution header.
+- Updated `skills/xnk-iterate/SKILL.md` (and `~/.gemini/config/skills/xnk-iterate/SKILL.md`), `TestFormatDirectorTurn`, and bumped `VERSION` to `2.1.1` (`v2.1.1`).

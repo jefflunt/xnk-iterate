@@ -1,7 +1,6 @@
 package antigravity
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/jefflunt/xnk-iterate/internal/model"
@@ -18,7 +17,8 @@ func TestFormatDirectorTurn(t *testing.T) {
 		ReactionFramePath: "/tmp/reaction.jpg",
 	}
 	prompt := FormatDirectorTurn([]model.Utterance{u}, &model.CaptureTarget{Title: "Display 1", Resolution: model.Size{Width: 1920, Height: 1080}})
-	if !strings.Contains(prompt, "Player 1 color is inverted.") || !strings.Contains(prompt, "/tmp/trigger.jpg") {
-		t.Fatalf("formatted prompt missing expected fields: %s", prompt)
+	want := "Player 1 color is inverted.\n\n`#4 · 24.8s–33.2s` · [trigger](/tmp/trigger.jpg) · [reaction](/tmp/reaction.jpg)"
+	if prompt != want {
+		t.Fatalf("unexpected formatted prompt:\ngot:  %q\nwant: %q", prompt, want)
 	}
 }

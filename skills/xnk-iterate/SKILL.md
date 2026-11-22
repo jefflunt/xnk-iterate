@@ -27,7 +27,7 @@ print(urllib.request.urlopen(req, timeout=5).read().decode())'
    ```
    *(If `127.0.0.1:9292` is unreachable, let the user know to launch `XNK Iterate.app` first.)*
 3. **Confirm the Link** in 1 short sentence (including the linked repo/status returned by `/api/bind`) and tell the user they can press **Start** in XNK Iterate's HUD, talk naturally, and press their Send hotkey (default `⌥↩`) whenever they want to send a turn.
-4. **When `[XNK ITERATE — LIVE DIRECTOR FEEDBACK]` Messages Arrive:**
-   - Immediately inspect any attached `Trigger Frame` and `Reaction Frame` paths using `read_file` to see exactly what happened on screen.
-   - Cross-reference the lookback timestamps and `Trigger Action` coordinates with the codebase.
+4. **When XNK Iterate Director Messages Arrive:**
+   - Immediately inspect any attached `[trigger](...)`, `[reaction](...)`, or `[frame N](...)` image paths using `read_file` to see exactly what happened on screen.
+   - Cross-reference the lookback timestamps and any click/key coordinates in the footer pill with the codebase.
    - Keep replies concise and action-oriented while the user continues playtesting!
