@@ -8,7 +8,7 @@ This directory contains persistent context, architectural notes, and session log
 - **Product Name:** XNK Iterate (`xnk-iterate`)
 - **Purpose:** Standalone native macOS application (Swift / SwiftUI, macOS 14+) for voice-directed software development and multimodal AI feedback. Captures GPU screen/window video (`ScreenCaptureKit`), real-time local speech transcription (`AVAudioEngine` + `SFSpeechRecognizer` / Whisper CoreML), and OS-level interaction events (`CGEventTap`), then correlates them via a Dynamic Lookback Engine and streams structured feedback events (`ws://127.0.0.1:9292`) and standalone `.xnk` bundles to AI coding agents.
 - **License:** MIT (`LICENSE`)
-- **Current Stage:** v2.0.0 implemented in Go as a native macOS-first **Google Antigravity Partner Companion** (`webview_go` floating HUD + embedded XNK Design System v2.0 CSS + always-detached multi-monitor Capture Box + Carbon global hotkeys + `agentapi` bridge). Build with `make build` / `make mac-app`, test with `make test`.
+- **Current Stage:** v2.1.0 implemented in Go as a native macOS-first **Google Antigravity Partner Companion** (`webview_go` floating HUD + embedded XNK Design System v2.0 CSS + always-detached multi-monitor Capture Box + Carbon global hotkeys + `agentapi` bridge + conversation-scoped brain frame storage). Build with `make build` / `make mac-app`, test with `make test`.
 
 ## Core Project Documents
 

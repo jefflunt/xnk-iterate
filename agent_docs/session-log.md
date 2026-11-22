@@ -97,3 +97,11 @@
   - Fixed native macOS speech recognition by removing `setVoiceProcessingEnabled(true)`, using native hardware mic format (`format: nil`), removing forced offline-only recognition, adding `taskGeneration` guards against stale callbacks on flush/discard, and adding full speech diagnostics + 250ms Send fallback.
   - Guarded `darwinCapturer.Start` with `CGPreflightScreenCaptureAccess()` to prevent repeated macOS Screen Recording prompts after unsigned rebuilds, and added ad-hoc `codesign --force --deep --sign -` to `Makefile`.
 - Bumped `VERSION` to `2.0.0` (`v2.0.0`).
+
+## 2026-11-21 — v2.1.0 Conversation-Scoped Brain Frame Storage (Zero Permission Prompts)
+
+### Summary
+- Updated `Orchestrator.FramesOutputDir()` (`internal/session/orchestrator.go`) to dynamically write Trigger, Reaction, Carousel, and MCP on-demand frames directly into the currently linked Antigravity conversation's brain directory (`<appDataDir>/brain/<conversation_id>/xnk-frames/<capture_id>/`, defaulting to `~/.gemini/antigravity/brain/...`), eliminating repeated Antigravity external-file read prompts.
+- Unlinking or re-linking a different conversation automatically switches the target brain directory for all subsequent frames (falling back to the local archive bundle `frames/` directory when unlinked).
+- Updated `/api/bind` (`internal/server/server.go`), `config.AppConfig` (`internal/config/store.go`), and `skills/xnk-iterate/SKILL.md` to capture and persist `ANTIGRAVITY_APP_DATA_DIR`, and updated `/api/frame` to serve HUD thumbnails/lightbox images from both `StorageRoot()` and `BrainRoot()`.
+- Added `TestFramesOutputDirFollowsLinkedConversation` and bumped `VERSION` to `2.1.0` (`v2.1.0`).

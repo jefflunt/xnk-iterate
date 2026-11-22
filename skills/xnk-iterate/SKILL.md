@@ -20,6 +20,7 @@ payload = json.dumps({
   "ls_address": os.environ.get("ANTIGRAVITY_LS_ADDRESS", ""),
   "csrf_token": os.environ.get("ANTIGRAVITY_CSRF_TOKEN", ""),
   "agentapi_exe": os.environ.get("ANTIGRAVITY_AGENTAPI_EXE", ""),
+  "app_data_dir": os.environ.get("ANTIGRAVITY_APP_DATA_DIR", ""),
 }).encode()
 req = urllib.request.Request("http://127.0.0.1:9292/api/bind", data=payload, headers={"Content-Type": "application/json"})
 print(urllib.request.urlopen(req, timeout=5).read().decode())'

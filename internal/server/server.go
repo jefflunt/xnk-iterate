@@ -115,8 +115,18 @@ func (s *Server) handleFrame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cleanTarget := filepath.Clean(p)
-	cleanRoot := filepath.Clean(s.orch.StorageRoot())
-	if !strings.HasPrefix(cleanTarget, cleanRoot+string(filepath.Separator)) {
+	allowedRoots := []string{
+		filepath.Clean(s.orch.StorageRoot()),
+		filepath.Clean(s.orch.BrainRoot()),
+	}
+	allowed := false
+	for _, root := range allowedRoots {
+		if strings.HasPrefix(cleanTarget, root+string(filepath.Separator)) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
 		http.Error(w, "forbidden path", http.StatusForbidden)
 		return
 	}
@@ -148,13 +158,14 @@ func (s *Server) handleBind(w http.ResponseWriter, r *http.Request) {
 		LSAddress      string `json:"ls_address,omitempty"`
 		CSRFToken      string `json:"csrf_token,omitempty"`
 		AgentAPIExe    string `json:"agentapi_exe,omitempty"`
+		AppDataDir     string `json:"app_data_dir,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
 	applog.Info("server", "POST /api/bind conversation_id=%s ls_address=%s", body.ConversationID, body.LSAddress)
-	meta, err := s.orch.BindConversationWithEnv(body.ConversationID, body.LSAddress, body.CSRFToken, body.AgentAPIExe)
+	meta, err := s.orch.BindConversationWithEnv(body.ConversationID, body.LSAddress, body.CSRFToken, body.AgentAPIExe, body.AppDataDir)
 	w.Header().Set("Content-Type", "application/json")
 	resp := map[string]any{
 		"bound":           err == nil,

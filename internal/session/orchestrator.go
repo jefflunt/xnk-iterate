@@ -67,6 +67,7 @@ type Orchestrator struct {
 	lsAddress         string
 	csrfToken         string
 	agentAPIExe       string
+	appDataDir        string
 	linkedRepo        string
 	linkedBranch      string
 	linkedWorkspace   string
@@ -146,6 +147,7 @@ func NewOrchestrator(storageRoot string) *Orchestrator {
 		lsAddress:        persisted.LSAddress,
 		csrfToken:        persisted.CSRFToken,
 		agentAPIExe:      persisted.AgentAPIExe,
+		appDataDir:       persisted.AppDataDir,
 		silenceTimeoutMS: persisted.SilenceTimeoutMS,
 		agentState:       model.AgentIdle,
 		agentStatusText:  "Run /xnk-iterate in Antigravity to link",
@@ -261,13 +263,13 @@ func (o *Orchestrator) SetHotkeyRecording(active bool) {
 
 // BindConversation links XNK Iterate to an existing Google Antigravity conversation ID.
 func (o *Orchestrator) BindConversation(convID string) (antigravity.ConversationMeta, error) {
-	return o.BindConversationWithEnv(convID, "", "", "")
+	return o.BindConversationWithEnv(convID, "", "", "", "")
 }
 
 // BindConversationWithEnv links XNK Iterate to an existing Google Antigravity conversation ID
 // and records the Language Server connection environment (ANTIGRAVITY_LS_ADDRESS, ANTIGRAVITY_CSRF_TOKEN,
-// ANTIGRAVITY_AGENTAPI_EXE) supplied by `/xnk-iterate`.
-func (o *Orchestrator) BindConversationWithEnv(convID, lsAddress, csrfToken, agentAPIExe string) (antigravity.ConversationMeta, error) {
+// ANTIGRAVITY_AGENTAPI_EXE, ANTIGRAVITY_APP_DATA_DIR) supplied by `/xnk-iterate`.
+func (o *Orchestrator) BindConversationWithEnv(convID, lsAddress, csrfToken, agentAPIExe, appDataDir string) (antigravity.ConversationMeta, error) {
 	convID = strings.TrimSpace(convID)
 	if convID == "" {
 		return antigravity.ConversationMeta{}, fmt.Errorf("conversation_id is required")
@@ -282,6 +284,9 @@ func (o *Orchestrator) BindConversationWithEnv(convID, lsAddress, csrfToken, age
 	}
 	if strings.TrimSpace(agentAPIExe) != "" {
 		o.agentAPIExe = strings.TrimSpace(agentAPIExe)
+	}
+	if strings.TrimSpace(appDataDir) != "" {
+		o.appDataDir = strings.TrimSpace(appDataDir)
 	}
 	o.bridge.SetConnectionEnv(o.lsAddress, o.csrfToken, o.agentAPIExe)
 	o.mu.Unlock()
@@ -417,10 +422,50 @@ func (o *Orchestrator) saveConfigLocked() {
 		LSAddress:        o.lsAddress,
 		CSRFToken:        o.csrfToken,
 		AgentAPIExe:      o.agentAPIExe,
+		AppDataDir:       o.appDataDir,
 		SilenceTimeoutMS: o.silenceTimeoutMS,
 		Region:           &reg,
 		Hotkeys:          &hk,
 	})
+}
+
+func (o *Orchestrator) resolveAppDataDirLocked() string {
+	if strings.TrimSpace(o.appDataDir) != "" {
+		return strings.TrimSpace(o.appDataDir)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".gemini", "antigravity")
+	}
+	return filepath.Join(os.TempDir(), "antigravity")
+}
+
+// BrainRoot returns the root Antigravity brain directory (~/.gemini/antigravity/brain)
+// used for storing conversation-scoped frames that Antigravity can read without prompting.
+func (o *Orchestrator) BrainRoot() string {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return filepath.Join(o.resolveAppDataDirLocked(), "brain")
+}
+
+// FramesOutputDir dynamically resolves where Trigger/Reaction frames should be written.
+// When linked to an Antigravity conversation, frames are written directly into that
+// conversation's own brain directory (<appDataDir>/brain/<conversation_id>/xnk-frames/<capture_id>)
+// so Antigravity can inspect them natively with zero external-directory permission prompts.
+// Switching or unlinking conversations automatically redirects subsequent frames.
+func (o *Orchestrator) FramesOutputDir() string {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if convID := strings.TrimSpace(o.conversationID); convID != "" {
+		sub := strings.TrimSpace(o.captureID)
+		if sub == "" {
+			sub = "live"
+		}
+		return filepath.Join(o.resolveAppDataDirLocked(), "brain", convID, "xnk-frames", sub)
+	}
+	if o.bundleDir != "" {
+		return filepath.Join(o.bundleDir, "frames")
+	}
+	return filepath.Join(os.TempDir(), "xnk-frames")
 }
 
 // Subscribe returns a channel receiving real-time LiveEvents.
@@ -795,7 +840,7 @@ func (o *Orchestrator) submitUtteranceWithOffset(text string, confidence float32
 	var carouselPaths []string
 	var snaps []model.FrameSnapshot
 	if recording && bDir != "" {
-		framesDir := filepath.Join(bDir, "frames")
+		framesDir := o.FramesOutputDir()
 		trigPath, reactPath, carouselPaths, snaps, _ = o.lookbackEng.ExtractFrames(uttID, res, o.ringBuf, framesDir)
 	}
 
@@ -922,13 +967,7 @@ func (o *Orchestrator) GrabFrame(ts *float64) (string, float64, error) {
 		return "", 0, fmt.Errorf("no frames in ring buffer")
 	}
 
-	o.mu.RLock()
-	bDir := o.bundleDir
-	o.mu.RUnlock()
-	if bDir == "" {
-		bDir = os.TempDir()
-	}
-	framesDir := filepath.Join(bDir, "frames")
+	framesDir := o.FramesOutputDir()
 	if err := os.MkdirAll(framesDir, 0o755); err != nil {
 		return "", 0, err
 	}

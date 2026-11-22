@@ -15,6 +15,7 @@ type AppConfig struct {
 	LSAddress        string               `json:"ls_address,omitempty"`
 	CSRFToken        string               `json:"csrf_token,omitempty"`
 	AgentAPIExe      string               `json:"agentapi_exe,omitempty"`
+	AppDataDir       string               `json:"app_data_dir,omitempty"`
 	ContinueSession  bool                 `json:"continue_session"`
 	SilenceTimeoutMS int                  `json:"silence_timeout_ms"`
 	VoiceOutputMuted bool                 `json:"voice_output_muted"`

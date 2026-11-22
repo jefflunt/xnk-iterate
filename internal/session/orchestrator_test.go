@@ -1,6 +1,7 @@
 package session
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/jefflunt/xnk-iterate/internal/model"
@@ -61,5 +62,40 @@ func TestStopSessionDoesNotDeadlock(t *testing.T) {
 	<-done
 	if o.StateSnapshot().Recording {
 		t.Fatalf("expected recording=false after StopSession")
+	}
+}
+
+func TestFramesOutputDirFollowsLinkedConversation(t *testing.T) {
+	o := NewOrchestrator(t.TempDir())
+	fakeAppData := t.TempDir()
+	fakeBundle := t.TempDir()
+
+	o.mu.Lock()
+	o.appDataDir = fakeAppData
+	o.bundleDir = fakeBundle
+	o.captureID = "cap_123"
+	o.conversationID = "conv-aaa"
+	o.mu.Unlock()
+
+	wantA := filepath.Join(fakeAppData, "brain", "conv-aaa", "xnk-frames", "cap_123")
+	if got := o.FramesOutputDir(); got != wantA {
+		t.Fatalf("expected %q, got %q", wantA, got)
+	}
+
+	// Switch to a different conversation -> path follows automatically
+	o.mu.Lock()
+	o.conversationID = "conv-bbb"
+	o.mu.Unlock()
+
+	wantB := filepath.Join(fakeAppData, "brain", "conv-bbb", "xnk-frames", "cap_123")
+	if got := o.FramesOutputDir(); got != wantB {
+		t.Fatalf("expected %q after relink, got %q", wantB, got)
+	}
+
+	// Unlink -> falls back to bundle frames dir
+	o.UnbindConversation()
+	wantUnlinked := filepath.Join(fakeBundle, "frames")
+	if got := o.FramesOutputDir(); got != wantUnlinked {
+		t.Fatalf("expected %q when unlinked, got %q", wantUnlinked, got)
 	}
 }
