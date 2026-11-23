@@ -8,7 +8,7 @@ package ui
 
 void setupMacMainMenu(void);
 void setMacAppIcon(const void *pngBytes, int length);
-void configureMacWindow(void *winPtr, bool floatingCompact);
+void configureMacWindow(void *winPtr, bool floatingCompact, int minWidth, int targetWidth, int targetHeight);
 void startMacWindowDrag(void *winPtr);
 */
 import "C"
@@ -26,6 +26,9 @@ var (
 	terminateMu    sync.Mutex
 	terminateOnce  sync.Once
 	onAppTerminate func()
+
+	resizeMu      sync.Mutex
+	onWindowResize func(width int, inLiveResize bool)
 )
 
 // SetOnTerminate registers a cleanup hook invoked once when the main window closes or Cmd+Q is pressed.
@@ -33,6 +36,22 @@ func SetOnTerminate(fn func()) {
 	terminateMu.Lock()
 	onAppTerminate = fn
 	terminateMu.Unlock()
+}
+
+func setNativeWindowResizeHandler(fn func(width int, inLiveResize bool)) {
+	resizeMu.Lock()
+	onWindowResize = fn
+	resizeMu.Unlock()
+}
+
+//export goWindowDidResize
+func goWindowDidResize(width C.int, inLiveResize C.bool) {
+	resizeMu.Lock()
+	cb := onWindowResize
+	resizeMu.Unlock()
+	if cb != nil {
+		cb(int(width), bool(inLiveResize))
+	}
 }
 
 //export goAppWillTerminate
@@ -47,7 +66,7 @@ func goAppWillTerminate() {
 	})
 }
 
-func configureNativeWindow(windowPtr unsafe.Pointer, floatingCompact bool) {
+func configureNativeWindow(windowPtr unsafe.Pointer, floatingCompact bool, minWidth, width, height int) {
 	appIconOnce.Do(func() {
 		C.setupMacMainMenu()
 		if len(embeddedAppIconPNG) > 0 {
@@ -57,7 +76,7 @@ func configureNativeWindow(windowPtr unsafe.Pointer, floatingCompact bool) {
 	if windowPtr == nil {
 		return
 	}
-	C.configureMacWindow(windowPtr, C.bool(floatingCompact))
+	C.configureMacWindow(windowPtr, C.bool(floatingCompact), C.int(minWidth), C.int(width), C.int(height))
 }
 
 func startNativeWindowDrag(windowPtr unsafe.Pointer) {

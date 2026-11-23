@@ -72,6 +72,7 @@ type Orchestrator struct {
 	linkedBranch      string
 	linkedWorkspace   string
 	silenceTimeoutMS  int
+	windowWidth       int
 	agentState        model.AgentState
 	agentStatusText   string
 	injectedCount     int
@@ -149,6 +150,7 @@ func NewOrchestrator(storageRoot string) *Orchestrator {
 		agentAPIExe:      persisted.AgentAPIExe,
 		appDataDir:       persisted.AppDataDir,
 		silenceTimeoutMS: persisted.SilenceTimeoutMS,
+		windowWidth:      persisted.WindowWidth,
 		agentState:       model.AgentIdle,
 		agentStatusText:  "Run /xnk-iterate in Antigravity to link",
 		subscribers:      make(map[chan LiveEvent]struct{}),
@@ -414,6 +416,28 @@ func (o *Orchestrator) SetDrawerOpen(open bool) {
 	o.broadcastState()
 }
 
+// WindowWidth returns the persisted control plane HUD width (0 if unset).
+func (o *Orchestrator) WindowWidth() int {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	return o.windowWidth
+}
+
+// SetWindowWidth updates and persists the user's preferred control plane HUD width.
+func (o *Orchestrator) SetWindowWidth(width int) {
+	if width <= 0 {
+		return
+	}
+	o.mu.Lock()
+	if o.windowWidth == width {
+		o.mu.Unlock()
+		return
+	}
+	o.windowWidth = width
+	o.saveConfigLocked()
+	o.mu.Unlock()
+}
+
 func (o *Orchestrator) saveConfigLocked() {
 	reg := o.region
 	hk := o.hotkeys
@@ -424,6 +448,7 @@ func (o *Orchestrator) saveConfigLocked() {
 		AgentAPIExe:      o.agentAPIExe,
 		AppDataDir:       o.appDataDir,
 		SilenceTimeoutMS: o.silenceTimeoutMS,
+		WindowWidth:      o.windowWidth,
 		Region:           &reg,
 		Hotkeys:          &hk,
 	})

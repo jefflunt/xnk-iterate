@@ -7,7 +7,9 @@ import "unsafe"
 // SetOnTerminate is a no-op stub on non-macOS platforms.
 func SetOnTerminate(fn func()) {}
 
-func configureNativeWindow(windowPtr unsafe.Pointer, floatingCompact bool) {
+func setNativeWindowResizeHandler(fn func(width int, inLiveResize bool)) {}
+
+func configureNativeWindow(windowPtr unsafe.Pointer, floatingCompact bool, minWidth, width, height int) {
 	// Cross-platform default: standard OS window handled by webview_go (WebView2 / WebKitGTK).
 }
 

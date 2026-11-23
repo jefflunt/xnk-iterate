@@ -47,6 +47,10 @@ func main() {
 	}
 
 	app := ui.NewDesktopApp("XNK Iterate", url)
+	app.SetInitialWidth(orch.WindowWidth())
+	app.SetOnWidthChange(func(width int) {
+		orch.SetWindowWidth(width)
+	})
 	captureBox := ui.NewPlatformCaptureBox()
 	defer captureBox.Destroy()
 

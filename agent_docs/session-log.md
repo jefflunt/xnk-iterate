@@ -125,3 +125,11 @@
 ### Summary
 - Applied `configureMacWindow` (`NSWindowStyleMaskFullSizeContentView`) synchronously before `w.SetSize` and increased compact HUD height from `68px` to `88px` (`960×88` collapsed, `960×490` expanded) so the borderless HUD launches at full unclipped height.
 - Bumped `VERSION` to `2.2.1` (`v2.2.1`).
+
+## 2026-11-22 — v2.3.0 Persistent HUD Width & Locked Vertical Resizing
+
+### Summary
+- Locked vertical resizing on the floating macOS Companion HUD (`internal/ui/window_darwin.m`, `internal/ui/desktop.go`) by fixing `minSize.height == maxSize.height` (`72px` collapsed, `480px` expanded) while preserving smooth horizontal resizing (`760px`–`4096px`) and anchoring the top edge when toggling the drawer.
+- Added persistent control plane width (`WindowWidth` in `internal/config/store.go`, wired through `internal/session/orchestrator.go`, `internal/ui/desktop.go`, and `cmd/xnk-iterate/main.go`) observed via `NSWindowDidResizeNotification` and `NSWindowDidEndLiveResizeNotification` so the HUD reopens at the exact width the user left it and preserves custom width across drawer toggles.
+- Added unit tests (`internal/config/store_test.go`, `internal/ui/desktop_test.go`) covering width normalization, persistence, and live-resize deduplication.
+- Bumped `VERSION` to `2.3.0` (`v2.3.0`).

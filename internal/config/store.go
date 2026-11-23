@@ -19,6 +19,7 @@ type AppConfig struct {
 	ContinueSession  bool                 `json:"continue_session"`
 	SilenceTimeoutMS int                  `json:"silence_timeout_ms"`
 	VoiceOutputMuted bool                 `json:"voice_output_muted"`
+	WindowWidth      int                  `json:"window_width,omitempty"`
 	Region           *model.CaptureRegion `json:"region,omitempty"`
 	Hotkeys          *model.HotkeyConfig  `json:"hotkeys,omitempty"`
 }

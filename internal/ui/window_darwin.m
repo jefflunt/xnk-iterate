@@ -1,11 +1,14 @@
 //go:build darwin
 
 #import <Cocoa/Cocoa.h>
+#include <math.h>
 #include <stdbool.h>
 
 extern void goAppWillTerminate(void);
+extern void goWindowDidResize(int width, bool inLiveResize);
 
 static BOOL gCleanupRegistered = NO;
+static BOOL gApplyingProgrammaticFrame = NO;
 
 void setupMacMainMenu(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -56,10 +59,10 @@ void setMacAppIcon(const void *pngBytes, int length) {
     });
 }
 
-void configureMacWindow(void *winPtr, bool floatingCompact) {
+void configureMacWindow(void *winPtr, bool floatingCompact, int minWidth, int targetWidth, int targetHeight) {
     if (winPtr == NULL) return;
     NSWindow *win = (__bridge NSWindow *)winPtr;
-    void (^applyConfig)(void) = ^{
+    dispatch_async(dispatch_get_main_queue(), ^{
         // Self-exclusion guarantee: prevent macOS screen capture APIs from recording our own window.
         [win setSharingType:NSWindowSharingNone];
         [win setAppearance:[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua]];
@@ -75,6 +78,29 @@ void configureMacWindow(void *winPtr, bool floatingCompact) {
         [win setMovableByWindowBackground:YES];
         [win setBackgroundColor:[NSColor colorWithRed:0.02 green:0.02 blue:0.03 alpha:1.0]];
 
+        if (targetWidth > 0 && targetHeight > 0) {
+            CGFloat minW = (CGFloat)(minWidth > 0 ? minWidth : 760);
+            CGFloat targetW = (CGFloat)targetWidth;
+            if (targetW < minW) {
+                targetW = minW;
+            }
+            CGFloat targetH = (CGFloat)targetHeight;
+
+            gApplyingProgrammaticFrame = YES;
+            // Lock vertical resizing by fixing minSize.height == maxSize.height == targetH
+            // while allowing smooth horizontal resizing from minW upward.
+            [win setMinSize:NSMakeSize(minW, targetH)];
+            [win setMaxSize:NSMakeSize(10000.0, targetH)];
+
+            NSRect f = [win frame];
+            CGFloat deltaH = targetH - f.size.height;
+            f.origin.y -= deltaH; // keep top edge anchored when resizing
+            f.size.width = targetW;
+            f.size.height = targetH;
+            [win setFrame:f display:YES animate:NO];
+            gApplyingProgrammaticFrame = NO;
+        }
+
         if (floatingCompact) {
             [win setLevel:NSFloatingWindowLevel];
             [win setCollectionBehavior:NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary];
@@ -84,6 +110,27 @@ void configureMacWindow(void *winPtr, bool floatingCompact) {
 
         if (!gCleanupRegistered) {
             gCleanupRegistered = YES;
+
+            // Track horizontal user resizes so width persists across restarts and drawer toggles.
+            [[NSNotificationCenter defaultCenter]
+                addObserverForName:NSWindowDidResizeNotification
+                            object:win
+                             queue:[NSOperationQueue mainQueue]
+                        usingBlock:^(NSNotification * _Nonnull note) {
+                            if (gApplyingProgrammaticFrame) return;
+                            int w = (int)llround([win frame].size.width);
+                            goWindowDidResize(w, [win inLiveResize] ? true : false);
+                        }];
+
+            [[NSNotificationCenter defaultCenter]
+                addObserverForName:NSWindowDidEndLiveResizeNotification
+                            object:win
+                             queue:[NSOperationQueue mainQueue]
+                        usingBlock:^(NSNotification * _Nonnull note) {
+                            if (gApplyingProgrammaticFrame) return;
+                            int w = (int)llround([win frame].size.width);
+                            goWindowDidResize(w, false);
+                        }];
 
             // Closing the main Control Plane window (red X or Cmd+W) terminates the entire app
             // cleanly so the detached Capture Box never keeps XNK Iterate lingering in the background.
@@ -105,12 +152,7 @@ void configureMacWindow(void *winPtr, bool floatingCompact) {
                             goAppWillTerminate();
                         }];
         }
-    };
-    if ([NSThread isMainThread]) {
-        applyConfig();
-    } else {
-        dispatch_async(dispatch_get_main_queue(), applyConfig);
-    }
+    });
 }
 
 void startMacWindowDrag(void *winPtr) {
